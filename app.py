@@ -19,6 +19,8 @@ load_dotenv(BASE_DIR / ".env")
 from flask import (  # noqa: E402
     Flask,
     flash,
+    g,
+    has_request_context,
     jsonify,
     redirect,
     render_template,
@@ -148,70 +150,99 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 seen.add(key)
         return result
 
+    def request_cached(key: str, loader: Callable[[], Any]) -> Any:
+        """Cache read-only repository results for the current HTTP request.
+
+        Several pages use the same task/user/client data in both the route and
+        template context processor. Reusing the object for that one request
+        prevents duplicate Google responses and duplicate Python lists from
+        existing in memory at the same time. The cache is automatically
+        discarded by Flask when the request ends, so it cannot become stale
+        across different user actions.
+        """
+        if not has_request_context():
+            return loader()
+        cache = getattr(g, "_tms_request_cache", None)
+        if cache is None:
+            cache = {}
+            g._tms_request_cache = cache
+        if key not in cache:
+            cache[key] = loader()
+        return cache[key]
+
     def active_users() -> list[dict[str, str]]:
-        return sorted(
-            [
-                user
-                for user in repo().get_users()
-                if user.get("Email", "").strip()
-                and is_active(user.get("Active", "Yes"))
-            ],
-            key=lambda user: (
-                user.get("Name", "").strip().lower(),
-                user.get("Email", "").strip().lower(),
-            ),
-        )
+        def load() -> list[dict[str, str]]:
+            return sorted(
+                [
+                    user
+                    for user in repo().get_users()
+                    if user.get("Email", "").strip()
+                    and is_active(user.get("Active", "Yes"))
+                ],
+                key=lambda user: (
+                    user.get("Name", "").strip().lower(),
+                    user.get("Email", "").strip().lower(),
+                ),
+            )
+
+        return request_cached("active_users", load)
 
     def active_clients() -> list[dict[str, str]]:
-        return sorted(
-            [
-                client
-                for client in repo().get_clients()
-                if client.get("Client Code", "").strip()
-                and client.get("Client Name", "").strip()
-                and is_active(client.get("Active", "Yes"))
-            ],
-            key=lambda client: (
-                client.get("Client Code", "").strip().lower(),
-                client.get("Client Name", "").strip().lower(),
-            ),
-        )
+        def load() -> list[dict[str, str]]:
+            return sorted(
+                [
+                    client
+                    for client in repo().get_clients()
+                    if client.get("Client Code", "").strip()
+                    and client.get("Client Name", "").strip()
+                    and is_active(client.get("Active", "Yes"))
+                ],
+                key=lambda client: (
+                    client.get("Client Code", "").strip().lower(),
+                    client.get("Client Name", "").strip().lower(),
+                ),
+            )
+
+        return request_cached("active_clients", load)
 
     def masters() -> dict[str, list[str]]:
-        data = repo().get_masters()
-        user_names = [
-            user.get("Name", "").strip()
-            for user in active_users()
-            if user.get("Name", "").strip()
-        ]
-        client_names = [
-            client.get("Client Name", "").strip()
-            for client in active_clients()
-            if client.get("Client Name", "").strip()
-        ]
-        data["Associates"] = sorted(
-            set(data.get("Associates", []) + user_names),
-            key=str.lower,
-        )
-        data["Clients"] = sorted(
-            set(data.get("Clients", []) + client_names),
-            key=str.lower,
-        )
-        # Always include workflow statuses even when the Masters sheet was
-        # created before newer statuses were added. The former single
-        # "Pending for Client" value is deliberately hidden from normal UI
-        # choices; historical tasks carrying it remain readable/editable.
-        master_statuses = [
-            item
-            for item in data.get("Status", [])
-            if str(item).strip().lower()
-            != LEGACY_PENDING_CLIENT_STATUS.lower()
-        ]
-        data["Status"] = unique_ordered(master_statuses + DEFAULT_STATUSES)
-        data["Priority"] = unique_ordered(
-            list(data.get("Priority", [])) + DEFAULT_PRIORITIES
-        )
-        return data
+        def load() -> dict[str, list[str]]:
+            data = repo().get_masters()
+            user_names = [
+                user.get("Name", "").strip()
+                for user in active_users()
+                if user.get("Name", "").strip()
+            ]
+            client_names = [
+                client.get("Client Name", "").strip()
+                for client in active_clients()
+                if client.get("Client Name", "").strip()
+            ]
+            data["Associates"] = sorted(
+                set(data.get("Associates", []) + user_names),
+                key=str.lower,
+            )
+            data["Clients"] = sorted(
+                set(data.get("Clients", []) + client_names),
+                key=str.lower,
+            )
+            # Always include workflow statuses even when the Masters sheet was
+            # created before newer statuses were added. The former single
+            # "Pending for Client" value is deliberately hidden from normal UI
+            # choices; historical tasks carrying it remain readable/editable.
+            master_statuses = [
+                item
+                for item in data.get("Status", [])
+                if str(item).strip().lower()
+                != LEGACY_PENDING_CLIENT_STATUS.lower()
+            ]
+            data["Status"] = unique_ordered(master_statuses + DEFAULT_STATUSES)
+            data["Priority"] = unique_ordered(
+                list(data.get("Priority", [])) + DEFAULT_PRIORITIES
+            )
+            return data
+
+        return request_cached("masters", load)
 
     def current_user() -> dict[str, str]:
         return {
@@ -914,53 +945,59 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         return bool(due and due < date.today() and not is_completed(task))
 
     def pending_approval_tasks() -> list[dict[str, Any]]:
-        pending = [
-            task
-            for task in enriched_tasks()
-            if is_pending_approval(task)
-            and task.get("Completion Approval Status", "").strip().lower()
-            in {"", APPROVAL_PENDING.lower()}
-        ]
-        pending.sort(
-            key=lambda task: (
-                task.get("Completion Submitted At", ""),
-                task.get("Task ID", ""),
+        def load() -> list[dict[str, Any]]:
+            pending = [
+                task
+                for task in enriched_tasks()
+                if is_pending_approval(task)
+                and task.get("Completion Approval Status", "").strip().lower()
+                in {"", APPROVAL_PENDING.lower()}
+            ]
+            pending.sort(
+                key=lambda task: (
+                    task.get("Completion Submitted At", ""),
+                    task.get("Task ID", ""),
+                )
             )
-        )
-        return pending
+            return pending
+
+        return request_cached("pending_approval_tasks", load)
 
     def enriched_tasks() -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        for task in repo().get_tasks():
-            if is_deleted(task):
-                continue
-            copy: dict[str, Any] = dict(task)
-            due = parse_date(task.get("Due Date", ""))
-            completion = parse_date(task.get("Completion Date", ""))
-            copy["_due_date"] = due
-            copy["_completion_date"] = completion
-            copy["_is_completed"] = is_completed(task)
-            copy["_is_archived"] = is_archived_task(task)
-            copy["_is_pending_approval"] = is_pending_approval(task)
-            copy["_is_pending_checking"] = is_pending_checking(task)
-            copy["_is_overdue"] = is_overdue(task)
-            copy["_is_today_focus"] = assigned_today_focus(task)
-            copy["_is_checking_today_focus"] = checking_today_focus(task)
-            copy["_is_authorised_today"] = assigned_authorised_today(task)
-            copy["_is_checking_authorised_today"] = (
-                checking_authorised_today(task)
-            )
-            if completion and due:
-                if completion < due:
-                    copy["_completion_result"] = "Completed before due date"
-                elif completion == due:
-                    copy["_completion_result"] = "Completed on time"
+        def load() -> list[dict[str, Any]]:
+            rows: list[dict[str, Any]] = []
+            for task in repo().get_tasks():
+                if is_deleted(task):
+                    continue
+                copy: dict[str, Any] = dict(task)
+                due = parse_date(task.get("Due Date", ""))
+                completion = parse_date(task.get("Completion Date", ""))
+                copy["_due_date"] = due
+                copy["_completion_date"] = completion
+                copy["_is_completed"] = is_completed(task)
+                copy["_is_archived"] = is_archived_task(task)
+                copy["_is_pending_approval"] = is_pending_approval(task)
+                copy["_is_pending_checking"] = is_pending_checking(task)
+                copy["_is_overdue"] = is_overdue(task)
+                copy["_is_today_focus"] = assigned_today_focus(task)
+                copy["_is_checking_today_focus"] = checking_today_focus(task)
+                copy["_is_authorised_today"] = assigned_authorised_today(task)
+                copy["_is_checking_authorised_today"] = (
+                    checking_authorised_today(task)
+                )
+                if completion and due:
+                    if completion < due:
+                        copy["_completion_result"] = "Completed before due date"
+                    elif completion == due:
+                        copy["_completion_result"] = "Completed on time"
+                    else:
+                        copy["_completion_result"] = "Completed late"
                 else:
-                    copy["_completion_result"] = "Completed late"
-            else:
-                copy["_completion_result"] = "Completed"
-            rows.append(copy)
-        return rows
+                    copy["_completion_result"] = "Completed"
+                rows.append(copy)
+            return rows
+
+        return request_cached("enriched_tasks", load)
 
     def ongoing_sort_key(task: dict[str, Any]) -> tuple[bool, date, str]:
         due = task.get("_due_date")

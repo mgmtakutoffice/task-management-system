@@ -748,7 +748,12 @@ class GoogleSheetsRepository(TaskRepository):
         return result
 
     def get_tasks(self) -> list[dict[str, str]]:
-        values = self._get_values(self.tasks_sheet_name)
+        # Read only the columns that belong to TASK_HEADERS. The generic
+        # _get_values default extends to ZZ, which can pull hundreds of
+        # irrelevant columns if stray/formula values exist in the sheet and
+        # can create a large transient memory spike on a 512 MB instance.
+        end_column = self._column_letter(len(TASK_HEADERS))
+        values = self._get_values(self.tasks_sheet_name, f"A:{end_column}")
         if not values:
             return []
         headers = values[0]
@@ -993,28 +998,30 @@ class GoogleSheetsRepository(TaskRepository):
         if not values:
             return []
         headers = values[0]
-        return [
-            {
-                header: _row_to_dict(headers, row).get(header, "")
-                for header in USER_HEADERS
-            }
-            for row in values[1:]
-            if any(str(value).strip() for value in row)
-        ]
+        records: list[dict[str, str]] = []
+        for row in values[1:]:
+            if not any(str(value).strip() for value in row):
+                continue
+            source = _row_to_dict(headers, row)
+            records.append(
+                {header: source.get(header, "") for header in USER_HEADERS}
+            )
+        return records
 
     def get_clients(self) -> list[dict[str, str]]:
         values = self._get_values(self.clients_sheet_name, "A:F")
         if not values:
             return []
         headers = values[0]
-        return [
-            {
-                header: _row_to_dict(headers, row).get(header, "")
-                for header in CLIENT_HEADERS
-            }
-            for row in values[1:]
-            if any(str(value).strip() for value in row)
-        ]
+        records: list[dict[str, str]] = []
+        for row in values[1:]:
+            if not any(str(value).strip() for value in row):
+                continue
+            source = _row_to_dict(headers, row)
+            records.append(
+                {header: source.get(header, "") for header in CLIENT_HEADERS}
+            )
+        return records
 
     def add_client(self, client: dict[str, str]) -> None:
         client_code = str(client.get("Client Code", "")).strip()
