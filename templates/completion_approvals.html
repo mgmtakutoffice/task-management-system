@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Completion Approvals | Office Task Manager{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Approval workflow</p>
+    <h1>Completion Approvals</h1>
+    <p>Either authorised user may approve or reject a pending completion request.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('dashboard') }}">Back to Dashboard</a>
+</header>
+
+<section class="approval-list">
+  {% for task in tasks %}
+  <article class="panel approval-card" id="{{ task['Task ID'] }}">
+    <div class="approval-card-head">
+      <div>
+        <span class="status-badge status-approval">Pending Completion Approval</span>
+        <h2>{{ task['Client Code'] or task['Client Name'] }}{% if task['Matter / Project'] %} - {{ task['Matter / Project'] }}{% endif %}</h2>
+        <p>{{ task['Task Description'] }}</p>
+      </div>
+      <a class="table-action" href="{{ url_for('edit_task', task_id=task['Task ID']) }}">View / Edit Task</a>
+    </div>
+
+    <div class="approval-meta-grid">
+      <div><span>Assigned To</span><strong>{{ task['Assigned To'] or 'Unassigned' }}</strong></div>
+      <div><span>Checked By</span><strong>{{ task['Checking Completed By'] or task['Completion Submitted By'] or '—' }}</strong></div>
+      <div><span>Submitted At</span><strong>{{ task['Completion Submitted At'] or '—' }}</strong></div>
+      <div><span>Due Date</span><strong>{{ task['Due Date'] or '—' }}</strong></div>
+    </div>
+
+    {% if task['Checking Comment'] %}<div class="approval-note"><strong>Checking Comment</strong><p>{{ task['Checking Comment'] }}</p></div>{% endif %}
+    {% if task['Progress Remarks'] %}<div class="approval-note"><strong>Progress Remarks</strong><p>{{ task['Progress Remarks'] }}</p></div>{% endif %}
+    {% if task['Additional Details'] %}<div class="approval-note"><strong>Additional Details</strong><p>{{ task['Additional Details'] }}</p></div>{% endif %}
+
+    <div class="approval-actions">
+      <form method="post" action="{{ url_for('approve_completion', task_id=task['Task ID']) }}">
+        <button class="btn btn-success" type="submit">Approve Completion</button>
+      </form>
+      <form method="post" action="{{ url_for('reject_completion', task_id=task['Task ID']) }}" class="reject-form">
+        <input type="text" name="rejection_reason" placeholder="Reason for rejection" required>
+        <button class="btn btn-danger" type="submit">Reject</button>
+      </form>
+    </div>
+  </article>
+  {% else %}
+  <section class="panel empty-state">No completion requests are awaiting approval.</section>
+  {% endfor %}
+</section>
+{% endblock %}

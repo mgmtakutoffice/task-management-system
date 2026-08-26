@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | Office Task Manager{% endblock %}
+{% block content %}
+<header class="page-header personal-dashboard-header">
+  <div>
+    <p class="eyebrow">Overview</p>
+    {% if is_task_editor %}
+      <h1>Main Dashboard</h1>
+      <p>Current workload, checking assignments and recently updated tasks.</p>
+    {% else %}
+      <h1>Welcome, {{ current_user.name or 'User' }}</h1>
+      <p>Your personal work plan, daily focus, checking queue and recent updates.</p>
+    {% endif %}
+  </div>
+  <div class="page-header-actions">
+    {% if not is_task_editor %}
+      <a class="btn btn-secondary" href="{{ url_for('my_tasks') }}">View My Tasks</a>
+      <a class="btn btn-secondary" href="{{ url_for('completed_tasks') }}">My Completed Tasks</a>
+    {% endif %}
+    <a class="btn btn-primary" href="{{ url_for('add_task') }}">+ Add Task</a>
+  </div>
+</header>
+
+{% if is_task_editor %}
+<section class="metric-grid dashboard-metric-grid">
+  <a href="{{ url_for('ongoing_tasks') }}" class="metric-card"><span>Ongoing</span><strong>{{ metrics.ongoing }}</strong></a>
+  <a href="{{ url_for('ongoing_tasks', status='Pending for Checking') }}" class="metric-card metric-check"><span>For Checking</span><strong>{{ metrics.pending_checking }}</strong></a>
+  <a href="{{ url_for('completion_approvals') }}" class="metric-card metric-approval"><span>Completion Approvals</span><strong>{{ metrics.pending_approvals }}</strong></a>
+  <a href="{{ url_for('completed_tasks', completed_month=current_month) }}" class="metric-card metric-success"><span>Completed This Month</span><strong>{{ metrics.completed_month }}</strong></a>
+</section>
+
+<section class="panel approval-dashboard-panel">
+  <div class="panel-header">
+    <div><h2>Pending completion approvals</h2><p>Either authorised user may approve or reject submitted completion requests.</p></div>
+    <a href="{{ url_for('completion_approvals') }}">Open approvals</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Client / Matter</th><th>Task</th><th>Assigned To</th><th>Checked By</th><th>Submitted At</th><th></th></tr></thead>
+      <tbody>
+      {% for task in pending_approvals %}
+        <tr>
+          <td><strong>{{ task['Client Code'] or task['Client Name'] }}</strong><small>{{ task['Matter / Project'] or '—' }}</small></td>
+          <td>{{ task['Task Description'] }}</td>
+          <td>{{ task['Assigned To'] }}</td>
+          <td>{{ task['Checking Completed By'] or '—' }}</td>
+          <td>{{ task['Completion Submitted At'] or '—' }}</td>
+          <td><a class="table-action" href="{{ url_for('completion_approvals') }}#{{ task['Task ID'] }}">Review</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="empty-cell">No completion requests are awaiting approval.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel associate-workload-panel">
+  <div class="panel-header">
+    <div>
+      <h2>Associate workload</h2>
+      <p>Current assigned work, checking responsibility, overdue work and monthly completion.</p>
+    </div>
+  </div>
+
+  {% if associate_workload %}
+  <div class="workload-grid">
+    {% for row in associate_workload %}
+    <article class="workload-card">
+      <div class="workload-card-heading">
+        <div>
+          <strong>{{ row.name }}</strong>
+          <small>{{ row.active_total }} active responsibilit{{ 'y' if row.active_total == 1 else 'ies' }}</small>
+        </div>
+        <span class="workload-total">{{ row.active_total }}</span>
+      </div>
+
+      <div class="workload-bar" title="Relative active workload compared with the busiest associate">
+        <span style="width: {{ row.load_percent }}%"></span>
+      </div>
+
+      <div class="workload-stat-grid">
+        <a href="{{ url_for('ongoing_tasks', assigned_to=row.name) }}" class="workload-stat">
+          <strong>{{ row.ongoing }}</strong>
+          <span>Assigned ongoing</span>
+        </a>
+        <a href="{{ url_for('ongoing_tasks', assigned_to=row.name, status='Pending for Checking') }}" class="workload-stat">
+          <strong>{{ row.checking }}</strong>
+          <span>For checking</span>
+        </a>
+        <a href="{{ url_for('ongoing_tasks', assigned_to=row.name, overdue='1') }}" class="workload-stat">
+          <strong>{{ row.overdue }}</strong>
+          <span>Overdue tasks</span>
+        </a>
+        <a href="{{ url_for('completed_tasks', assigned_to=row.name, completed_month=current_month) }}" class="workload-stat">
+          <strong>{{ row.completed_month }}</strong>
+          <span>Completed this month</span>
+        </a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  <p class="workload-note">The bar shows relative active workload within the team; it is not a capacity or performance score.</p>
+  {% else %}
+  <div class="empty-state">No task data is available yet.</div>
+  {% endif %}
+</section>
+
+{% else %}
+<section class="metric-grid personal-metric-grid">
+  <a href="{{ url_for('my_tasks', today='1') }}" class="metric-card metric-today"><span>Today Items</span><strong>{{ metrics.today_focus }}</strong></a>
+  <a href="{{ url_for('my_tasks', responsibility='assigned') }}" class="metric-card"><span>My Ongoing Tasks</span><strong>{{ metrics.ongoing }}</strong></a>
+  <a href="{{ url_for('my_tasks', due_today='1', responsibility='assigned') }}" class="metric-card metric-due"><span>Due Today</span><strong>{{ metrics.due_today }}</strong></a>
+  <a href="{{ url_for('my_tasks', overdue='1', responsibility='assigned') }}" class="metric-card metric-danger"><span>Overdue</span><strong>{{ metrics.overdue }}</strong></a>
+  <a href="{{ url_for('my_tasks', status='Pending for Checking', responsibility='checking') }}" class="metric-card metric-check"><span>For Checking</span><strong>{{ metrics.pending_checking }}</strong></a>
+  <a href="{{ url_for('my_tasks', status='Pending Completion Approval', responsibility='assigned') }}" class="metric-card metric-approval"><span>Awaiting Approval</span><strong>{{ metrics.pending_approvals }}</strong></a>
+  <a href="{{ url_for('completed_tasks', completed_month=current_month) }}" class="metric-card metric-success"><span>Completed This Month</span><strong>{{ metrics.completed_month }}</strong></a>
+</section>
+
+<section class="panel personal-priority-panel">
+  <div class="panel-header">
+    <div>
+      <h2>My Priority Tasks</h2>
+      <p>🔵 TODAY and 🚩 TODAY items, overdue, due-today and urgent tasks requiring attention.</p>
+    </div>
+    <a href="{{ url_for('my_tasks') }}">Open My Tasks</a>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Focus</th><th>Client / Matter</th><th>Task</th><th>Priority</th><th>Status</th><th>Due Date</th><th></th></tr></thead>
+      <tbody>
+      {% for task in personal_priority_tasks %}
+        <tr class="{{ 'row-authorised-today' if task.get('_is_authorised_today') else ('row-today-focus' if task.get('_is_today_focus') else ('row-overdue' if task.get('_is_overdue') else '')) }}">
+          <td>
+            {% if task.get('_is_authorised_today') %}<span class="authorised-today-badge">🔵 Today</span>
+            {% elif task.get('_is_today_focus') %}<span class="today-focus-badge">🚩 Today</span>
+            {% elif task.get('_is_overdue') %}<span class="mini-alert">Overdue</span>
+            {% elif task.get('Due Date') == today_iso %}<span class="today-due-badge">Due today</span>
+            {% else %}<span class="view-only-text">Urgent</span>{% endif %}
+          </td>
+          <td><strong>{{ task['Client Code'] or task['Client Name'] }}</strong><small>{{ task['Matter / Project'] or '—' }}</small></td>
+          <td>{{ task['Task Description'] }}</td>
+          <td><span class="priority priority-{{ task['Priority']|lower }}">{{ task['Priority'] }}</span></td>
+          <td><span class="status-badge {{ status_class(task['Status']) }}">{{ task['Status'] }}</span></td>
+          <td>{{ task['Due Date'] or '—' }}</td>
+          <td>{% if can_update_task(task) %}<a class="table-action" href="{{ url_for('edit_task', task_id=task['Task ID']) }}">Edit</a>{% else %}<span class="view-only-text">View only</span>{% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="empty-cell">No 🔵 TODAY, 🚩 TODAY, urgent, overdue or due-today tasks.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<div class="personal-dashboard-columns">
+  <section class="panel personal-pipeline-panel">
+    <div class="panel-header"><div><h2>My Work Pipeline</h2><p>Status-wise view of your assigned work.</p></div></div>
+    <div class="pipeline-list">
+      {% for row in personal_pipeline %}
+        <a href="{{ url_for('my_tasks', status=row.status, responsibility='assigned') }}" class="pipeline-row">
+          <span>{{ row.status }}</span><strong>{{ row.count }}</strong>
+        </a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel personal-checking-panel">
+    <div class="panel-header"><div><h2>My Checking Queue</h2><p>Tasks currently waiting for your checking decision.</p></div></div>
+    <div class="checking-queue-list">
+      {% for task in personal_checking_queue %}
+        <a class="checking-queue-item {{ 'checking-queue-authorised-today' if task.get('_is_checking_authorised_today') else ('checking-queue-today' if task.get('_is_checking_today_focus') else '') }}" href="{{ url_for('review_checking', task_id=task['Task ID']) }}">
+          <div>
+            <strong>{{ task['Client Code'] or task['Client Name'] }}</strong>
+            <span>{{ task['Matter / Project'] or task['Task Description'] }}</span>
+            <small>Prepared by {{ task['Assigned To'] or 'Unassigned' }} · {{ task['Submitted for Checking At'] or 'Submission time not recorded' }}</small>
+          </div>
+          {% if task.get('_is_checking_authorised_today') %}
+            <span class="authorised-today-badge">🔵 Today</span>
+          {% elif task.get('_is_checking_today_focus') %}
+            <span class="today-focus-badge">🚩 Today</span>
+          {% endif %}
+        </a>
+      {% else %}
+        <div class="empty-state compact-empty-state">No tasks are waiting for your checking.</div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-header"><div><h2>Recently updated</h2><p>{{ 'Latest changes across all tasks.' if is_task_editor else 'Latest changes to your assigned and checking responsibilities.' }}</p></div></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Task ID</th><th>Client / Matter</th><th>Task</th><th>Status</th><th>Updated By</th><th>Updated At</th><th></th></tr></thead>
+      <tbody>
+      {% for task in recent_tasks %}
+        <tr>
+          <td><code>{{ task['Task ID'] }}</code></td>
+          <td><strong>{{ task['Client Code'] or task['Client Name'] }}</strong><small>{{ task['Matter / Project'] }}</small></td>
+          <td>{{ task['Task Description'] }}</td>
+          <td><span class="status-badge {{ status_class(task['Status']) }}">{{ task['Status'] }}</span></td>
+          <td>{{ task['Last Updated By'] }}</td>
+          <td>{{ task['Last Updated At'] }}</td>
+          <td>
+            {% if can_review_checking(task) %}<a class="table-action" href="{{ url_for('review_checking', task_id=task['Task ID']) }}">Check</a>
+            {% elif can_update_task(task) %}<a class="table-action" href="{{ url_for('edit_task', task_id=task['Task ID']) }}">Edit</a>
+            {% else %}<span class="view-only-text">View only</span>{% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7" class="empty-cell">No tasks have been added.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

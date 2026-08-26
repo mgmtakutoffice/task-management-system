@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Office Task Manager{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  {% if session.get('user_email') %}
+  <button class="mobile-menu" type="button" aria-label="Open menu" data-menu-toggle>☰</button>
+  <aside class="sidebar" data-sidebar>
+    <div class="brand">
+      <div class="brand-mark">AA</div>
+      <div>
+        <strong>Task Manager</strong>
+        <span>Anand Akut &amp; Associates</span>
+      </div>
+    </div>
+    <nav class="nav-links">
+      <a class="{{ 'active' if request.endpoint == 'dashboard' else '' }}" href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a class="{{ 'active' if request.endpoint == 'add_task' else '' }}" href="{{ url_for('add_task') }}">Add Task</a>
+      <a class="{{ 'active' if request.endpoint in ['update_task_page', 'edit_task'] else '' }}" href="{{ url_for('update_task_page') }}">Update Task</a>
+      <a class="{{ 'active' if request.endpoint == 'my_tasks' else '' }}" href="{{ url_for('my_tasks') }}">My Tasks</a>
+      {% if is_task_editor %}
+      <a class="{{ 'active' if request.endpoint == 'ongoing_tasks' else '' }}" href="{{ url_for('ongoing_tasks') }}">All Ongoing Tasks</a>
+      {% endif %}
+      <a class="{{ 'active' if request.endpoint == 'completed_tasks' else '' }}" href="{{ url_for('completed_tasks') }}">Completed Tasks</a>
+      <a class="{{ 'active' if request.endpoint == 'archived_tasks' else '' }}" href="{{ url_for('archived_tasks') }}">Archived Tasks</a>
+      {% if is_task_editor %}
+      <a class="{{ 'active' if request.endpoint == 'completion_approvals' else '' }}" href="{{ url_for('completion_approvals') }}">
+        Completion Approvals
+        {% if pending_approval_count %}<span class="nav-count">{{ pending_approval_count }}</span>{% endif %}
+      </a>
+      {% endif %}
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <span class="avatar">{{ (current_user.name or current_user.email)[:1]|upper }}</span>
+        <div>
+          <strong>{{ current_user.name or 'User' }}</strong>
+          <small>{{ current_user.email }}</small>
+        </div>
+      </div>
+      <a class="logout-link" href="{{ url_for('logout') }}" data-logout-link>Sign out</a>
+    </div>
+  </aside>
+  {% endif %}
+
+  <main class="{{ 'main-content' if session.get('user_email') else 'login-shell' }}">
+    {% if session.get('user_email') %}
+    <div class="notification-toolbar"
+         data-notification-root
+         data-notification-user="{{ current_user.email }}"
+         data-push-configured="{{ 'true' if push_notifications_configured else 'false' }}"
+         data-vapid-public-key="{{ vapid_public_key }}">
+      <button class="notification-bell"
+              type="button"
+              aria-label="Notifications"
+              aria-expanded="false"
+              data-notification-bell>
+        <span class="notification-bell-icon" aria-hidden="true">🔔</span>
+        <span class="notification-count" data-notification-count hidden>0</span>
+      </button>
+
+      <div class="notification-panel" data-notification-panel hidden>
+        <div class="notification-panel-head">
+          <div>
+            <strong>Notifications</strong>
+            <small>Unread task alerts</small>
+          </div>
+          <span class="notification-panel-count" data-notification-panel-count>0 unread</span>
+        </div>
+        <div class="push-notification-controls" data-push-controls hidden>
+          <button class="btn btn-small push-enable-button" type="button" data-push-enable>
+            Enable browser notifications
+          </button>
+          <small data-push-status></small>
+        </div>
+        <div class="notification-list" data-notification-list>
+          <div class="notification-empty">Loading…</div>
+        </div>
+      </div>
+    </div>
+    <div class="notification-toast-stack" data-notification-toasts aria-live="polite"></div>
+    {% endif %}
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-stack">
+          {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

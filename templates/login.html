@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login | Task Management System</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, Helvetica, sans-serif; background: #f5f6f8; color: #111; }
+    .top-header { width: 100%; min-height: 70px; padding: 14px 20px; background: #1f1f3a; color: #fff; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 28px; font-weight: 700; }
+    .login-page { padding: 36px 20px; }
+    .system-title { margin: 0 0 25px; text-align: center; color: #087cff; font-size: 26px; font-weight: 700; }
+    .login-card { width: 100%; max-width: 576px; margin: 0 auto; padding: 45px 37px 28px; background: #fff; border-radius: 11px; box-shadow: 0 2px 12px rgba(0,0,0,.13); }
+    .login-card h2 { margin: 0 0 24px; text-align: center; font-size: 24px; }
+    .form-group { margin-bottom: 28px; }
+    .form-group label { display: block; margin-bottom: 8px; font-size: 21px; font-weight: 700; }
+    .form-control { width: 100%; height: 43px; padding: 9px 12px; border: 1px solid #d4d4d4; border-radius: 5px; background: #fff; font-size: 17px; outline: none; }
+    .form-control:focus { border-color: #087cff; box-shadow: 0 0 0 2px rgba(8,124,255,.12); }
+    .login-button { width: 100%; height: 46px; border: 0; border-radius: 5px; background: #087cff; color: #fff; font-size: 17px; cursor: pointer; }
+    .login-button:hover { background: #006de5; }
+    .flash-message { margin-bottom: 20px; padding: 11px 14px; border: 1px solid #f0b8b8; border-radius: 5px; background: #fff0f0; color: #b00020; font-size: 15px; }
+    @media (max-width: 650px) {
+      .top-header { min-height: 62px; font-size: 21px; }
+      .login-page { padding: 28px 15px; }
+      .system-title { font-size: 22px; }
+      .login-card { padding: 35px 25px 25px; }
+      .form-group label { font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top-header">Anand Akut &amp; Associates</header>
+  <main class="login-page">
+    <h1 class="system-title">Task Management System</h1>
+    <section class="login-card">
+      <h2>Login</h2>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash-message">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      <form method="post" action="{{ url_for('login', next=request.args.get('next', '')) }}">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" class="form-control" value="{{ request.form.get('email', '') }}" autocomplete="username" required autofocus>
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" class="form-control" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="login-button">Login</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

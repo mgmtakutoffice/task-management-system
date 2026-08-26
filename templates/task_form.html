@@ -1,0 +1,328 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }} | Office Task Manager{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Task details</p>
+    <h1>{{ page_title }}</h1>
+    {% if task and not is_task_editor %}
+      <p>Update the task status or submit the task for checking.</p>
+    {% else %}
+      <p>Add or revise task assignment, priority, deadline and workflow status.</p>
+    {% endif %}
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('update_task_page') if task else (url_for('ongoing_tasks') if is_task_editor else url_for('my_tasks')) }}">Back</a>
+</header>
+
+{% if task and is_task_editor and task.get('Checking Status') == 'Checked' and task.get('Status') == 'In Progress' %}
+<div class="workflow-banner workflow-banner-checking">
+  <strong>CHECKING ACCEPTED</strong>
+  <span>{{ task.get('Checking Comment') or 'No checking comment was recorded.' }}</span>
+</div>
+{% elif task and is_task_editor and task.get('Checking Status') == 'Changes Required' and task.get('Status') == 'Changes Required' %}
+<div class="workflow-banner workflow-banner-rejected">
+  <strong>CHANGES REQUIRED AFTER CHECKING</strong>
+  <span>{{ task.get('Changes Required Comment') or 'No checking comment was recorded.' }}</span>
+</div>
+{% elif task and task.get('Status') == 'Pending for Checking' %}
+<div class="workflow-banner workflow-banner-checking">
+  <strong>Awaiting checking</strong>
+  <span>Assigned to {{ task.get('Checker Name') or task.get('Checker Email') }} for checking on {{ task.get('Submitted for Checking At') or '—' }}.</span>
+  {% if can_review_checking(task) %}<a href="{{ url_for('review_checking', task_id=task['Task ID']) }}">Open checking review</a>{% endif %}
+</div>
+{% elif task and task.get('Status') == 'Pending Completion Approval' %}
+<div class="workflow-banner workflow-banner-pending">
+  <strong>Awaiting completion approval</strong>
+  <span>Completion was submitted by {{ task.get('Completion Submitted By') or task.get('Assigned To') }} on {{ task.get('Completion Submitted At') or '—' }}.</span>
+  {% if is_task_editor %}<a href="{{ url_for('completion_approvals') }}#{{ task['Task ID'] }}">Review this request</a>{% endif %}
+</div>
+{% elif task and task.get('Status') == 'Completion Rejected' %}
+<div class="workflow-banner workflow-banner-rejected">
+  <strong>Completion request rejected</strong>
+  <span>{{ task.get('Completion Rejection Reason') or 'No rejection reason was recorded.' }}</span>
+</div>
+{% endif %}
+
+{% if not task %}
+<details class="panel client-master-panel">
+  <summary>+ Add New Client</summary>
+  <div class="client-master-content">
+    <p>Add the client here only when it is not available in the Client dropdown below.</p>
+    <form method="post" action="{{ url_for('add_client') }}" class="client-add-form">
+      <div class="form-grid">
+        <label>
+          Client Code <span class="required">*</span>
+          <input type="text" name="new_client_code" placeholder="For example: CL001" autocomplete="off" required>
+        </label>
+        <label>
+          Client Name <span class="required">*</span>
+          <input type="text" name="new_client_name" placeholder="Client or group name" autocomplete="off" required>
+        </label>
+        <label class="span-2">
+          Entity Name <small>Optional</small>
+          <input type="text" name="new_entity_name" placeholder="Company, firm, LLP or individual entity name" autocomplete="off">
+        </label>
+      </div>
+      <div class="form-actions"><button class="btn btn-primary" type="submit">Save Client</button></div>
+    </form>
+  </div>
+</details>
+{% endif %}
+
+<form method="post" class="panel form-panel">
+  {% if task %}
+  <div class="form-meta">
+    <span>Task ID</span>
+    <strong>{{ task['Task ID'] }}</strong>
+    <span>Created by {{ task['Created By'] }} on {{ task['Created At'] }}</span>
+  </div>
+  {% endif %}
+
+  {% set limited_update = task and not is_task_editor %}
+  {% set approval_locked = task and task.get('Status') == 'Pending Completion Approval' and is_task_editor %}
+
+  <div class="form-grid">
+    <label>
+      Client <span class="required">*</span>
+      {% set selected_client_code = request.form.get('client_code', task.get('Client Code', '') if task else request.args.get('client_code', '')) %}
+      <select name="client_code" required data-client-search {% if limited_update %}disabled{% endif %}>
+        <option value="">Select client</option>
+        {% for client in clients %}
+        <option value="{{ client['Client Code'] }}" {{ 'selected' if selected_client_code|lower == client['Client Code']|lower else '' }}>
+          {{ client['Client Code'] }} — {{ client['Client Name'] }}{% if client['Entity Name'] %} — {{ client['Entity Name'] }}{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      {% if limited_update %}<small>Client details can be changed only by an authorised user.</small>{% else %}<small>Start typing any part of the Client Code or Client Name, then select the client from the results. Client details are saved automatically.</small>{% endif %}
+      {% if not clients %}<small class="field-warning">No active clients are available. Add a client above before adding a task.</small>{% endif %}
+    </label>
+
+    <label>
+      Matter / Project
+      <input type="text" name="matter_project" value="{{ request.form.get('matter_project', task['Matter / Project'] if task else '') }}" {% if limited_update %}readonly{% endif %}>
+      {% if limited_update %}<small>Can be changed only by an authorised user.</small>{% endif %}
+    </label>
+
+    <label class="span-2">
+      Task Description <span class="required">*</span>
+      <textarea name="task_description" rows="3" required>{{ request.form.get('task_description', task['Task Description'] if task else '') }}</textarea>
+      {% if task %}<small>Task description may be updated by the assigned user as well as authorised users.</small>{% endif %}
+    </label>
+
+    <label>
+      Assigned To <span class="required">*</span>
+      {% set selected_email = request.form.get('assigned_to_email', task['Assigned To Email'] if task else '') %}
+      <select name="assigned_to_email" required {% if limited_update %}disabled{% endif %}>
+        <option value="">Select associate</option>
+        {% for user in users %}
+        <option value="{{ user['Email']|lower }}" {{ 'selected' if selected_email|lower == user['Email']|lower else '' }}>{{ user['Name'] }} — {{ user['Email'] }}</option>
+        {% endfor %}
+      </select>
+      {% if limited_update %}<small>Assignment can be changed only by an authorised user.</small>{% endif %}
+    </label>
+
+    <label>
+      Assigned By
+      <input type="text" name="assigned_by" value="{{ request.form.get('assigned_by', task['Assigned By'] if task else current_user.name) }}" {% if limited_update %}readonly{% endif %}>
+    </label>
+
+    <label>
+      Assigned Date <span class="required">*</span>
+      <input type="date" name="assigned_date" value="{{ request.form.get('assigned_date', task['Assigned Date'] if task else today_iso) }}" required {% if limited_update %}disabled{% endif %}>
+      {% if limited_update %}<small>Can be changed only by an authorised user.</small>{% endif %}
+    </label>
+
+    <label>
+      Due Date <small>Optional</small>
+      {% if not task %}
+      <input type="date" name="due_date" value="{{ request.form.get('due_date', '') }}">
+      <small>Any user may set the due date while creating a task.</small>
+      {% elif is_task_editor %}
+      <input type="date" name="due_date" value="{{ request.form.get('due_date', task.get('Due Date', '')) }}">
+      <small>You are authorised to change the due date after task creation.</small>
+      {% else %}
+        {% if task.get('Due Date') %}<input type="date" value="{{ task.get('Due Date') }}" disabled>{% else %}<input type="text" value="Not assigned" disabled>{% endif %}
+      <small>After task creation, the due date can be changed only by an authorised user.</small>
+      {% endif %}
+    </label>
+
+    <label>
+      Priority <span class="required">*</span>
+      {% set selected_priority = request.form.get('priority', task['Priority'] if task else 'Normal') %}
+      <select name="priority" required {% if limited_update %}disabled{% endif %}>
+        {% for item in masters.Priority %}<option value="{{ item }}" {{ 'selected' if selected_priority == item else '' }}>{{ item }}</option>{% endfor %}
+      </select>
+      {% if limited_update %}<small>Can be changed only by an authorised user.</small>{% endif %}
+    </label>
+
+    <label>
+      Status <span class="required">*</span>
+
+      {% set current_task_status = task.get('Status', '')|trim if task else '' %}
+      {% set selected_status = request.form.get(
+        'status',
+        current_task_status if task else 'Yet to Start'
+      ) %}
+
+      <select
+        name="status"
+        required
+        data-status-select
+        {% if approval_locked %}disabled{% endif %}
+      >
+        {#
+          Completion Rejected is displayed only when it is already the
+          system-recorded status. The hidden option cannot be selected
+          manually from the dropdown.
+        #}
+        {% if task
+              and current_task_status|lower == 'completion rejected'
+              and selected_status|lower == 'completion rejected' %}
+        <option value="Completion Rejected" selected hidden>
+          Completion Rejected
+        </option>
+        {% endif %}
+
+        {% for option in status_options %}
+          {% set option_value = option.value|string|trim %}
+          {% if option_value|lower != 'completion rejected' %}
+          <option
+            value="{{ option_value }}"
+            {{ 'selected' if selected_status == option_value else '' }}
+          >
+            {{ option.label }}
+          </option>
+          {% endif %}
+        {% endfor %}
+      </select>
+
+      {% if approval_locked %}
+      <input type="hidden" name="status" value="Pending Completion Approval">
+      <small>Approve or reject this request from the Completion Approvals page.</small>
+      {% elif current_task_status|lower == 'completion rejected' %}
+      <small>
+        This system status was applied after completion rejection. You may
+        retain it while saving other permitted changes or select the next
+        working status.
+      </small>
+      {% elif task and not is_task_editor %}
+      <small>
+        Select “Submit for Checking” when another user must review the work,
+        or “Submit for Completion Approval” when separate checking is not required.
+      </small>
+      {% elif task and is_task_editor and can_self_complete %}
+      <small>
+        You may submit this task for checking, submit it for completion approval,
+        or directly mark it Completed because it is assigned to you.
+      </small>
+      {% elif task and is_task_editor %}
+      <small>
+        You may submit this task for checking or for completion approval.
+        Another user's task cannot be directly marked Completed.
+      </small>
+      {% endif %}
+    </label>
+
+    {% if task %}
+    <label class="span-2">
+      Additional Details / Comment
+      <textarea
+        name="additional_details"
+        rows="4"
+        placeholder="Add remarks or a short note while updating the task, changing status, submitting for checking, or submitting for completion approval."
+      >{{ request.form.get('additional_details', task.get('Additional Details', '')) }}</textarea>
+      <small>Available only while updating a task. This note is saved in Additional Details and is also captured in the activity log when the status changes.</small>
+    </label>
+
+    <label data-checker-wrap>
+      Checker
+      {% set selected_checker_email = request.form.get('checker_email', task.get('Checker Email', '')) %}
+      <select name="checker_email" data-checker-select>
+        <option value="">Select checker</option>
+        {% for user in users %}
+          {% if user['Email']|lower != task.get('Assigned To Email', '')|lower %}
+          <option value="{{ user['Email']|lower }}" {{ 'selected' if selected_checker_email|lower == user['Email']|lower else '' }}>{{ user['Name'] }} — {{ user['Email'] }}</option>
+          {% endif %}
+        {% endfor %}
+      </select>
+      <small>
+        Required only when “Submit for Checking” is selected. It is ignored
+        when the task is sent directly for completion approval.
+      </small>
+    </label>
+    {% endif %}
+
+    {% if task and is_task_editor and can_self_complete %}
+    <label data-completion-wrap>
+      Completion Date <small>Optional</small>
+      <input type="date" name="completion_date" value="{{ request.form.get('completion_date', task['Completion Date']) }}">
+      <small>Used only when you directly mark your own task Completed. Blank defaults to today.</small>
+    </label>
+    {% elif task and task.get('Completion Date') %}
+    <label>
+      Completion Date
+      <input type="date" value="{{ task.get('Completion Date') }}" disabled>
+    </label>
+    {% elif task and not is_task_editor %}
+    <label>
+      Completion Date
+      <input type="text" value="Recorded automatically after approval" disabled>
+    </label>
+    {% endif %}
+  </div>
+
+  {% if task and task.get('Checking Status') in ['Checked', 'Changes Required'] %}
+  <div class="panel checking-result-panel">
+    <div class="panel-header">
+      <div>
+        <h3>Checking Review</h3>
+        <p>Read-only details of the latest completed checking review.</p>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="checking-result-table">
+        <tbody>
+          <tr>
+            <th>Status</th>
+            <td>
+              {% if task.get('Checking Status') == 'Checked' %}
+                <strong>Checking Accepted</strong>
+              {% else %}
+                <strong>Changes Required After Checking</strong>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th>Checker</th>
+            <td>{{ task.get('Checking Completed By') or task.get('Checker Name') or task.get('Checker Email') or '—' }}</td>
+          </tr>
+          <tr>
+            <th>Submitted for Checking</th>
+            <td>{{ task.get('Submitted for Checking At') or '—' }}</td>
+          </tr>
+          <tr>
+            <th>Checking Completed</th>
+            <td>{{ task.get('Checking Completed At') or '—' }}</td>
+          </tr>
+          <tr>
+            <th>Comment</th>
+            <td>
+              {% if task.get('Checking Status') == 'Checked' %}
+                {{ task.get('Checking Comment') or 'No comment recorded.' }}
+              {% else %}
+                {{ task.get('Changes Required Comment') or 'No comment recorded.' }}
+              {% endif %}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="form-actions">
+    <a class="btn btn-secondary" href="{{ url_for('update_task_page') if task else (url_for('ongoing_tasks') if is_task_editor else url_for('my_tasks')) }}">Cancel</a>
+    <button class="btn btn-primary" type="submit" {{ 'disabled' if not clients and not task else '' }}>{{ submit_label }}</button>
+  </div>
+</form>
+{% endblock %}

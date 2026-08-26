@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }} | Office Task Manager{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Tasks</p>
+    <h1>{{ page_title }}</h1>
+    <p>{{ page_subtitle }}</p>
+  </div>
+  <a class="btn btn-primary" href="{{ url_for('add_task') }}">+ Add Task</a>
+</header>
+
+{% if responsibility_mode %}
+<div class="task-colour-guide">
+  <span class="colour-guide-title">Responsibility Guide:</span>
+  <span class="colour-guide-item"><span class="checking-badge-sample">⚑ FOR CHECKING</span>Pending checking</span>
+  <span class="colour-guide-item"><span class="authorised-today-badge">🔵 Today</span>Assigned by an authorised user</span>
+  <span class="colour-guide-item"><span class="today-focus-badge">🚩 Today</span>Your own focus</span>
+</div>
+{% endif %}
+
+<form method="get" class="panel filter-panel">
+  <div class="filter-grid">
+    <label>Search<input type="search" name="q" value="{{ request.args.get('q', '') }}" placeholder="Task, client, matter, ID..."></label>
+    {% if not responsibility_mode %}<label>Associate<select name="assigned_to"><option value="">All associates</option>{% for name in masters.Associates %}<option value="{{ name }}" {{ 'selected' if request.args.get('assigned_to') == name else '' }}>{{ name }}</option>{% endfor %}</select></label>{% endif %}
+    <label>Status<select name="status"><option value="">All statuses</option>{% for item in masters.Status %}<option value="{{ item }}" {{ 'selected' if request.args.get('status') == item else '' }}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Priority<select name="priority"><option value="">All priorities</option>{% for item in masters.Priority %}<option value="{{ item }}" {{ 'selected' if request.args.get('priority') == item else '' }}>{{ item }}</option>{% endfor %}</select></label>
+    <label>Client<input type="text" name="client" value="{{ request.args.get('client', '') }}" placeholder="Client code or name"></label>
+    {% if not show_completion %}<label class="checkbox-label"><input type="checkbox" name="overdue" value="1" {{ 'checked' if request.args.get('overdue') == '1' else '' }}> Overdue only</label>{% endif %}
+    {% if responsibility_mode %}<label class="checkbox-label"><input type="checkbox" name="today" value="1" {{ 'checked' if request.args.get('today') == '1' else '' }}> Today items only</label>{% endif %}
+  </div>
+  <div class="filter-actions"><a class="btn btn-secondary" href="{{ request.path }}">Clear</a><button class="btn btn-primary" type="submit">Apply Filters</button></div>
+</form>
+
+<section class="panel">
+  <div class="panel-header"><div><h2>{{ tasks|length }} item{{ '' if tasks|length == 1 else 's' }}</h2></div></div>
+  <div class="table-wrap">
+    <table class="task-table">
+      <thead>
+        <tr>
+          <th>Task ID</th>
+          {% if responsibility_mode %}<th>Responsibility</th><th>Today</th>{% endif %}
+          <th>Client / Matter</th>
+          <th>Task Description</th>
+          <th>{{ 'Assigned / Prepared By' if responsibility_mode else 'Assigned To' }}</th>
+          <th>Priority</th>
+          <th>Status</th>
+          <th>Due Date</th>
+          {% if show_completion %}<th>Completion</th><th>Result</th>{% endif %}
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for task in tasks %}
+        {% set is_checking = task.get('_display_type') == 'checking' %}
+        {% set checking_complete = task.get('_checking_is_complete', false) %}
+        {% set row_class = '' %}
+        {% if task.get('_is_authorised_today_for_responsibility') %}
+          {% set row_class = 'row-authorised-today' %}
+        {% elif task.get('_is_today_focus_for_responsibility') %}
+          {% set row_class = 'row-today-focus' %}
+        {% elif checking_complete %}
+          {% set row_class = 'row-checking-completed' %}
+        {% elif task._is_overdue %}
+          {% set row_class = 'row-overdue' %}
+        {% elif task['Priority']|lower == 'urgent' and not show_completion %}
+          {% set row_class = 'row-urgent' %}
+        {% elif show_completion %}
+          {% set row_class = 'row-completed' %}
+        {% endif %}
+        <tr class="{{ row_class }}">
+          <td><code>{{ task['Task ID'] }}</code></td>
+          {% if responsibility_mode %}
+          <td>
+            <span class="responsibility-badge responsibility-{{ 'checking-completed' if checking_complete else task.get('_display_type', 'assigned') }}">
+              {{ task.get('_display_label', 'ASSIGNED') }}
+            </span>
+            {% if checking_complete %}<small class="note-line">{{ task.get('_checking_outcome') }}</small>{% endif %}
+          </td>
+          <td class="today-focus-cell">
+            {% if task.get('_is_authorised_today_for_responsibility') %}
+              <span class="authorised-today-badge">🔵 Today</span>
+              {% if task.get('_authorised_today_by') %}
+                <small class="authorised-today-by">Assigned by {{ task.get('_authorised_today_by') }}</small>
+              {% endif %}
+            {% endif %}
+            <form method="post" action="{{ url_for('toggle_today_focus', task_id=task['Task ID']) }}" class="today-focus-form">
+              <input type="hidden" name="responsibility" value="{{ 'checking' if is_checking else 'assigned' }}">
+              <label class="today-focus-toggle">
+                <input type="checkbox" name="today" value="yes" onchange="this.form.submit()" {{ 'checked' if task.get('_is_today_focus_for_responsibility') else '' }}>
+                <span>🚩 TODAY</span>
+              </label>
+              {% if task.get('_is_today_focus_for_responsibility') %}<span class="today-focus-badge">🚩 Today</span>{% endif %}
+            </form>
+          </td>
+          {% endif %}
+          <td><strong>{{ task['Client Code'] or task['Client Name'] }}</strong><small>{{ task['Matter / Project'] or '—' }}</small></td>
+          <td class="wide-cell">
+            {{ task['Task Description'] }}
+            {% if task['Progress Remarks'] %}<small class="note-line">{{ task['Progress Remarks'] }}</small>{% endif %}
+            {% if is_checking and checking_complete and task.get('_checking_outcome') == 'Accepted' and task.get('Checking Comment') %}
+              <small class="note-line checking-note">Checking comment: {{ task.get('Checking Comment') }}</small>
+            {% endif %}
+            {% if is_checking and checking_complete and task.get('_checking_outcome') == 'Changes Required' and task.get('Changes Required Comment') %}
+              <small class="note-line checking-return-note">Changes required: {{ task.get('Changes Required Comment') }}</small>
+            {% endif %}
+          </td>
+          <td>
+            {{ task['Assigned To'] or 'Unassigned' }}
+            {% if is_checking %}<small>{{ 'Prepared by' if task.get('Assigned To') else '' }}</small>{% endif %}
+          </td>
+          <td><span class="priority priority-{{ task['Priority']|lower }}">{{ task['Priority'] }}</span></td>
+          <td>
+            {% set displayed_status = task.get('_responsibility_status', task['Status']) %}
+            <span class="status-badge {{ 'status-completed' if checking_complete else status_class(displayed_status) }}">{{ displayed_status }}</span>
+            {% if checking_complete and task.get('Checking Completed At') %}
+              <small class="note-line">{{ task.get('Checking Completed At') }}</small>
+            {% endif %}
+          </td>
+          <td>{{ task['Due Date'] or '—' }}{% if task._is_overdue and not checking_complete %}<span class="mini-alert">Overdue</span>{% endif %}</td>
+          {% if show_completion %}<td>{{ task['Completion Date'] or '—' }}</td><td>{{ task._completion_result }}</td>{% endif %}
+          <td>
+            {% if is_checking and task.get('_can_open') %}
+              <a class="table-action" href="{{ url_for('review_checking', task_id=task['Task ID']) }}">Check</a>
+            {% elif not is_checking and (task.get('_can_open') if responsibility_mode else can_update_task(task)) %}
+              <a class="table-action" href="{{ url_for('edit_task', task_id=task['Task ID']) }}">Edit</a>
+            {% elif checking_complete %}
+              <span class="view-only-text">Completed</span>
+            {% else %}
+              <span class="view-only-text">View only</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="{{ (12 if show_completion else 10) if responsibility_mode else (10 if show_completion else 8) }}" class="empty-cell">{{ empty_message }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

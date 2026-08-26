@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}All Ongoing Tasks | Task Management System{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Tasks</p>
+    <h1>All Ongoing Tasks</h1>
+    <p>Each card is prefixed as Assigned or For Checking. Completed checking records are available on Completed Tasks.</p>
+  </div>
+  <a class="btn btn-primary" href="{{ url_for('add_task') }}">+ Add Task</a>
+</header>
+
+<div class="task-colour-guide">
+  <span class="colour-guide-title">Task Backgrounds:</span>
+  <span class="colour-guide-item"><span class="colour-box colour-yet-to-start"></span>Yet to Start</span>
+  <span class="colour-guide-item"><span class="colour-box colour-in-progress"></span>In Progress</span>
+  <span class="colour-guide-item"><span class="colour-box colour-client-input"></span>Pending for Client Input</span>
+  <span class="colour-guide-item"><span class="colour-box colour-client-confirmation"></span>Pending for Client Confirmation</span>
+  <span class="colour-guide-item"><span class="colour-box colour-estimate-approval"></span>Pending for Estimate Approval</span>
+  <span class="colour-guide-item"><span class="colour-box colour-pending-checking"></span>Pending for Checking</span>
+  <span class="colour-guide-item"><span class="colour-box colour-pending-approval"></span>Pending Completion Approval</span>
+  <span class="colour-guide-item"><span class="colour-box colour-for-checking"></span>⚑ For Checking</span>
+  <span class="colour-guide-item"><span class="urgent-border-sample"></span>Urgent</span>
+  <span class="colour-guide-item"><span class="authorised-today-badge">🔵 Today</span>Set by authorised user</span>
+  <span class="colour-guide-item"><span class="today-focus-badge">🚩 Today</span>Set by user</span>
+</div>
+
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h2>
+        {{ total_tasks }} ongoing task{{ '' if total_tasks == 1 else 's' }}
+        {% if total_pending_checking %}
+          · {{ total_pending_checking }} pending checking
+        {% endif %}
+      </h2>
+      <p>Pending checking is shown first. Completed checking is moved to the Completed Tasks page.</p>
+    </div>
+  </div>
+
+  {% if advocates %}
+  <div class="table-wrap advocate-table-wrap">
+    <table class="advocate-wise-table">
+      <thead>
+        <tr>
+          {% for advocate in advocates %}
+          <th>
+            <div class="advocate-column-heading">
+              <span class="advocate-name">{{ advocate }}</span>
+              <span class="advocate-task-count">
+                {{ assigned_counts.get(advocate, 0) }} assigned
+                {% if pending_checking_counts.get(advocate, 0) %}
+                  · {{ pending_checking_counts.get(advocate, 0) }} to check
+                {% endif %}
+              </span>
+            </div>
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% if task_rows %}
+          {% for row in task_rows %}
+          <tr>
+            {% for task in row %}
+            <td>
+              {% if task %}
+                {% set status = task.get('Status', '')|trim|lower %}
+                {% set priority = task.get('Priority', '')|trim|lower %}
+                {% set is_checking_card = task.get('_display_type') == 'checking' %}
+                {% set classes = 'advocate-task-item' %}
+
+                {% if status == 'in progress' %}
+                  {% set classes = classes ~ ' task-status-progress' %}
+                {% elif status == 'pending for client input' %}
+                  {% set classes = classes ~ ' task-status-client-input' %}
+                {% elif status == 'pending for client confirmation' %}
+                  {% set classes = classes ~ ' task-status-client-confirmation' %}
+                {% elif status == 'pending for client' %}
+                  {# Legacy historical value only; no longer selectable. #}
+                  {% set classes = classes ~ ' task-status-client' %}
+                {% elif status == 'pending for estimate approval' %}
+                  {% set classes = classes ~ ' task-status-estimate-approval' %}
+                {% elif status == 'pending for checking' %}
+                  {% set classes = classes ~ ' task-status-checking' %}
+                {% elif status == 'pending completion approval' %}
+                  {% set classes = classes ~ ' task-status-approval' %}
+                {% elif status == 'changes required' or status == 'completion rejected' %}
+                  {% set classes = classes ~ ' task-status-changes' %}
+                {% elif status == 'completed' %}
+                  {% set classes = classes ~ ' task-status-completed' %}
+                {% else %}
+                  {% set classes = classes ~ ' task-status-not-started' %}
+                {% endif %}
+
+                {% if priority == 'urgent' %}
+                  {% set classes = classes ~ ' task-priority-urgent' %}
+                {% endif %}
+                {% if is_checking_card %}
+                  {% set classes = classes ~ ' task-for-checking' %}
+                {% endif %}
+                {% if task.get('_is_authorised_today_for_responsibility') %}
+                  {% set classes = classes ~ ' task-authorised-today' %}
+                {% endif %}
+                {% if task.get('_is_today_focus_for_responsibility') %}
+                  {% set classes = classes ~ ' task-today-focus' %}
+                {% endif %}
+
+                {% if task.get('_can_open') %}
+                  {% if is_checking_card %}
+                    <a class="{{ classes }}" href="{{ url_for('review_checking', task_id=task.get('Task ID')) }}" title="Open checking review">
+                  {% else %}
+                    <a class="{{ classes }}" href="{{ url_for('edit_task', task_id=task.get('Task ID')) }}" title="Open assigned task">
+                  {% endif %}
+                {% else %}
+                  <div class="{{ classes }} task-read-only" title="View only">
+                {% endif %}
+
+                  <div class="task-card-top">
+                    <span class="responsibility-badge responsibility-{{ task.get('_display_type') }}{% if not is_checking_card %} responsibility-status-badge{% endif %}">
+                      {% if is_checking_card %}
+                        {{ task.get('_display_label') }}
+                      {% else %}
+                        {{ task.get('Status') or '—' }}
+                      {% endif %}
+                    </span>
+                    <span class="task-card-badges">
+                      {% if task.get('_is_authorised_today_for_responsibility') %}
+                        <span class="authorised-today-badge" title="Assigned by {{ task.get('_authorised_today_by') or 'an authorised user' }}">🔵 Today</span>
+                      {% endif %}
+                      {% if task.get('_is_today_focus_for_responsibility') %}
+                        <span class="today-focus-badge">🚩 Today</span>
+                      {% endif %}
+                      <span class="task-priority-badge task-priority-badge-{{ priority or 'normal' }}">
+                        {{ task.get('Priority') or 'Normal' }}
+                      </span>
+                    </span>
+                  </div>
+
+
+                  {% set client_display = task.get('Client Code', '') or task.get('Client Name', '') %}
+                  <div class="task-card-text">
+                    {% if client_display %}<strong>{{ client_display }}</strong>{% endif %}
+                    {% if task.get('Matter / Project', '') %}{% if client_display %} - {% endif %}{{ task.get('Matter / Project') }}{% endif %}
+                    {% if task.get('Task Description', '') %}{% if client_display or task.get('Matter / Project', '') %} - {% endif %}{{ task.get('Task Description') }}{% endif %}
+                  </div>
+
+                  {% if is_checking_card %}
+                    <small class="task-card-meta">Prepared by: {{ task.get('Assigned To') or 'Unassigned' }}</small>
+                  {% endif %}
+
+                  {% if not is_checking_card and task.get('Checking Status') == 'Checked' and status == 'in progress' %}
+                    <small class="task-card-meta checking-note">
+                      <strong>CHECKING ACCEPTED</strong><br>
+                      Checked by {{ task.get('Checking Completed By') or task.get('Checker Name') or task.get('Checker Email') or '—' }}
+                      on {{ task.get('Checking Completed At') or '—' }}
+                    </small>
+                  {% elif not is_checking_card and task.get('Checking Status') == 'Changes Required' and status == 'changes required' %}
+                    <small class="task-card-meta task-card-warning">
+                      <strong>CHANGES REQUIRED AFTER CHECKING</strong><br>
+                      Checked by {{ task.get('Checking Completed By') or task.get('Checker Name') or task.get('Checker Email') or '—' }}
+                      on {{ task.get('Checking Completed At') or '—' }}
+                    </small>
+                  {% endif %}
+
+                {% if task.get('_can_open') %}</a>{% else %}</div>{% endif %}
+
+                {% set blocked_assigned_today_statuses = [
+                  'pending for checking',
+                  'pending completion approval',
+                  'completed'
+                ] %}
+                {% set can_assign_for_today =
+                  is_checking_card
+                  or status not in blocked_assigned_today_statuses
+                %}
+
+                {% if can_assign_for_today %}
+                <form
+                  method="post"
+                  action="{{ url_for('toggle_authorised_today', task_id=task.get('Task ID')) }}"
+                  class="authorised-today-form"
+                >
+                  <input
+                    type="hidden"
+                    name="responsibility"
+                    value="{{ 'checking' if is_checking_card else 'assigned' }}"
+                  >
+                  <label class="authorised-today-toggle">
+                    <input
+                      type="checkbox"
+                      name="enabled"
+                      value="yes"
+                      onchange="this.form.submit()"
+                      {{ 'checked' if task.get('_is_authorised_today_for_responsibility') else '' }}
+                    >
+                    <span>🔵 TODAY</span>
+                  </label>
+                </form>
+                {% endif %}
+              {% else %}
+                <span class="empty-task-cell">—</span>
+              {% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="{{ advocates|length }}" class="empty-cell">No ongoing tasks or pending checking records match the selected filters.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">No advocates are available.</div>
+  {% endif %}
+</section>
+
+<form method="get" action="{{ url_for('ongoing_tasks') }}" class="panel filter-panel ongoing-filter-panel">
+  <div class="panel-header"><div><h2>Filter Tasks</h2><p>The advocate filter includes ongoing assigned tasks and pending checking responsibilities.</p></div></div>
+  <div class="filter-grid">
+    <label>Search<input type="search" name="q" value="{{ request.args.get('q', '') }}" placeholder="Client code, matter, task or checker"></label>
+    <label>Advocate<select name="assigned_to"><option value="">All advocates</option>{% for advocate in masters.get('Associates', []) %}<option value="{{ advocate }}" {{ 'selected' if request.args.get('assigned_to', '') == advocate else '' }}>{{ advocate }}</option>{% endfor %}</select></label>
+    <label>Client<input type="text" name="client" value="{{ request.args.get('client', '') }}" placeholder="Client code or name"></label>
+    <label>Status<select name="status"><option value="">All ongoing statuses</option>{% for status in masters.get('Status', []) %}{% if status|lower != 'completed' %}<option value="{{ status }}" {{ 'selected' if request.args.get('status', '') == status else '' }}>{{ status }}</option>{% endif %}{% endfor %}</select></label>
+    <label>Priority<select name="priority"><option value="">All priorities</option>{% for priority in masters.get('Priority', []) %}<option value="{{ priority }}" {{ 'selected' if request.args.get('priority', '') == priority else '' }}>{{ priority }}</option>{% endfor %}</select></label>
+    <label>Assignment Month<input type="month" name="assignment_month" value="{{ request.args.get('assignment_month', '') }}"></label>
+    <label class="checkbox-label"><input type="checkbox" name="overdue" value="1" {{ 'checked' if request.args.get('overdue') == '1' else '' }}> Overdue only</label>
+  </div>
+  <div class="filter-actions"><a class="btn btn-secondary" href="{{ url_for('ongoing_tasks') }}">Clear Filters</a><button class="btn btn-primary" type="submit">Apply Filters</button></div>
+</form>
+{% endblock %}

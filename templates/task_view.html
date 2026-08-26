@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }} | Office Task Manager{% endblock %}
+
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Read-only task view</p>
+    <h1>{{ page_title }}</h1>
+    <p>This task is currently with the checker and cannot be edited by the original assignee.</p>
+  </div>
+
+  <a class="btn btn-secondary"
+     href="{{ url_for('ongoing_tasks') if is_task_editor else url_for('my_tasks') }}">
+    {{ 'Back to Ongoing Tasks' if is_task_editor else 'Back to My Tasks' }}
+  </a>
+</header>
+
+{% if task.get('Status') == 'Pending for Checking' %}
+<div class="workflow-banner workflow-banner-checking">
+  <strong>PENDING FOR CHECKING</strong>
+  <span>
+    Assigned to
+    {{ task.get('Checker Name') or task.get('Checker Email') or '—' }}
+    for checking on
+    {{ task.get('Submitted for Checking At') or '—' }}.
+  </span>
+</div>
+{% endif %}
+
+<section class="panel checking-review-card">
+
+  <div class="checking-review-head">
+    <div>
+      <span class="responsibility-badge responsibility-assigned">ASSIGNED</span>
+      <h2>
+        {{ task.get('Client Name') or task.get('Client Code') or 'Task' }}
+        {% if task.get('Matter / Project') %}
+          - {{ task.get('Matter / Project') }}
+        {% endif %}
+      </h2>
+    </div>
+
+    <span class="status-badge status-checking">
+      {{ task.get('Status') or '—' }}
+    </span>
+  </div>
+
+  <div class="panel-header">
+    <div>
+      <h3>Task Details</h3>
+      <p>Read-only details of the task.</p>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="checking-result-table">
+      <tbody>
+        <tr>
+          <th>Client Code</th>
+          <td>{{ task.get('Client Code') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Client Name</th>
+          <td>{{ task.get('Client Name') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Entity Name</th>
+          <td>{{ task.get('Entity Name') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Matter / Project</th>
+          <td>{{ task.get('Matter / Project') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Task Description</th>
+          <td>{{ task.get('Task Description') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Assigned To</th>
+          <td>
+            {{ task.get('Assigned To')
+               or task.get('Assigned To Email')
+               or '—' }}
+          </td>
+        </tr>
+
+        <tr>
+          <th>Assigned By</th>
+          <td>{{ task.get('Assigned By') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Assigned Date</th>
+          <td>{{ task.get('Assigned Date') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Due Date</th>
+          <td>{{ task.get('Due Date') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Priority</th>
+          <td>{{ task.get('Priority') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Status</th>
+          <td>{{ task.get('Status') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Additional Details</th>
+          <td>{{ task.get('Additional Details') or '—' }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel-header">
+    <div>
+      <h3>Checking Details</h3>
+      <p>Read-only details of the current checking assignment.</p>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="checking-result-table">
+      <tbody>
+        <tr>
+          <th>Checker</th>
+          <td>
+            {{ task.get('Checker Name')
+               or task.get('Checker Email')
+               or '—' }}
+          </td>
+        </tr>
+
+        <tr>
+          <th>Submitted for Checking By</th>
+          <td>
+            {{ task.get('Submitted for Checking By')
+               or task.get('Assigned To')
+               or '—' }}
+          </td>
+        </tr>
+
+        <tr>
+          <th>Submitted for Checking At</th>
+          <td>{{ task.get('Submitted for Checking At') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Checking Status</th>
+          <td>{{ task.get('Checking Status') or 'Pending' }}</td>
+        </tr>
+
+        <tr>
+          <th>Checking Completed By</th>
+          <td>{{ task.get('Checking Completed By') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Checking Completed At</th>
+          <td>{{ task.get('Checking Completed At') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Checking Comment</th>
+          <td>{{ task.get('Checking Comment') or '—' }}</td>
+        </tr>
+
+        <tr>
+          <th>Changes Required Comment</th>
+          <td>{{ task.get('Changes Required Comment') or '—' }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  {% if task.get('Reference Link') %}
+  <div class="approval-note">
+    <strong>Reference / Document Link</strong>
+    <p>
+      <a class="table-action"
+         href="{{ task.get('Reference Link') }}"
+         target="_blank"
+         rel="noopener">
+        Open document link
+      </a>
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="form-actions">
+    <a class="btn btn-secondary"
+       href="{{ url_for('ongoing_tasks') if is_task_editor else url_for('my_tasks') }}">
+      {{ 'Back to Ongoing Tasks' if is_task_editor else 'Back to My Tasks' }}
+    </a>
+  </div>
+
+</section>
+{% endblock %}

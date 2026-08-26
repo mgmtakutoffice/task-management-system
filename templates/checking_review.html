@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Checking Review | Office Task Manager{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Checking workflow</p>
+    <h1>Review Task for Checking</h1>
+    <p>Accept the checking or return the task to the original assignee with required changes.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('ongoing_tasks') if is_task_editor else url_for('my_tasks') }}">
+    {{ 'Back to Ongoing Tasks' if is_task_editor else 'Back to My Tasks' }}
+  </a>
+</header>
+
+<section class="panel checking-review-card">
+  <div class="checking-review-head">
+    <div>
+      <span class="responsibility-badge responsibility-checking">FOR CHECKING</span>
+      <h2>{{ task['Client Code'] or task['Client Name'] }}{% if task['Matter / Project'] %} - {{ task['Matter / Project'] }}{% endif %}</h2>
+      <p>{{ task['Task Description'] }}</p>
+    </div>
+    <span class="status-badge status-checking">{{ task['Status'] }}</span>
+  </div>
+
+  <div class="approval-meta-grid">
+    <div><span>Prepared By</span><strong>{{ task['Assigned To'] or 'Unassigned' }}</strong></div>
+    <div><span>Checker</span><strong>{{ task['Checker Name'] or task['Checker Email'] }}</strong></div>
+    <div><span>Submitted At</span><strong>{{ task['Submitted for Checking At'] or '—' }}</strong></div>
+    <div><span>Due Date</span><strong>{{ task['Due Date'] or '—' }}</strong></div>
+  </div>
+
+  {% if task['Progress Remarks'] %}<div class="approval-note"><strong>Progress Remarks</strong><p>{{ task['Progress Remarks'] }}</p></div>{% endif %}
+  {% if task['Additional Details'] %}<div class="approval-note"><strong>Additional Details</strong><p>{{ task['Additional Details'] }}</p></div>{% endif %}
+  {% if task['Reference Link'] %}<div class="approval-note"><strong>Reference</strong><p><a class="table-action" href="{{ task['Reference Link'] }}" target="_blank" rel="noopener">Open document link</a></p></div>{% endif %}
+
+  <div class="checking-actions-grid">
+    <form method="post" action="{{ url_for('complete_checking', task_id=task['Task ID']) }}" class="stack-form checking-action-box checking-pass-box">
+      <h3>Checking Completed</h3>
+      <p>Accepting completes your checking responsibility and returns the main task to the original assignee as In Progress.</p>
+      <label>Checking Comment <span class="required">*</span><textarea name="checking_comment" rows="4" placeholder="What was checked and confirmed?" required></textarea></label>
+      <button class="btn btn-success" type="submit">Accept</button>
+    </form>
+
+    <form method="post" action="{{ url_for('return_checking', task_id=task['Task ID']) }}" class="stack-form checking-action-box checking-return-box">
+      <h3>Changes Required</h3>
+      <p>Your checking responsibility will be marked completed, and the main task will return to {{ task['Assigned To'] or 'the assigned user' }} for correction.</p>
+      <label>Changes Required <span class="required">*</span><textarea name="changes_required_comment" rows="4" placeholder="Describe the corrections required." required></textarea></label>
+      <button class="btn btn-danger" type="submit">Return for Changes</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

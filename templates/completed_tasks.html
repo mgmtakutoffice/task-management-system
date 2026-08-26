@@ -1,0 +1,354 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Archived Tasks' if archive_view else 'Completed Tasks' }} | Task Management System{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <p class="eyebrow">Tasks</p>
+    <h1>
+      {% if archive_view %}
+        {{ 'All Archived Tasks' if completed_editor_view else 'My Archived Tasks' }}
+      {% else %}
+        {{ 'All Completed Tasks' if completed_editor_view else 'My Completed Tasks' }}
+      {% endif %}
+    </h1>
+    <p>
+      {% if archive_view %}
+        {% if completed_editor_view %}
+          Archived completed tasks and their completed checking responsibilities are grouped by responsible user. Archived records are read only until restored.
+        {% else %}
+          Only your archived completed tasks and archived checking responsibilities are shown.
+        {% endif %}
+      {% elif completed_editor_view %}
+        Every user's name is shown as a column heading, with their completed tasks and completed checking responsibilities listed below.
+      {% else %}
+        Only tasks completed by you and checking responsibilities completed by you are shown.
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="page-header-actions archive-header-actions">
+    {% if archive_view %}
+      <a class="btn btn-secondary" href="{{ url_for('completed_tasks') }}">Recent Completed Tasks</a>
+    {% else %}
+      <a class="btn btn-secondary" href="{{ url_for('archived_tasks') }}">Archived Tasks</a>
+      {% if completed_editor_view %}
+        {% if archive_eligible_count %}
+          <form
+            method="post"
+            action="{{ url_for('archive_completed_tasks') }}"
+            class="inline-action-form"
+            onsubmit="return confirm('Archive {{ archive_eligible_count }} completed task(s) with completion date before {{ archive_cutoff }}?');"
+          >
+            <button class="btn btn-secondary archive-action-button" type="submit">
+              Archive Eligible Tasks ({{ archive_eligible_count }})
+            </button>
+          </form>
+        {% else %}
+          <button class="btn btn-secondary" type="button" disabled title="No completed tasks are currently eligible for archive">
+            Archive Eligible Tasks (0)
+          </button>
+        {% endif %}
+      {% endif %}
+    {% endif %}
+    <a class="btn btn-primary" href="{{ url_for('add_task') }}">+ Add Task</a>
+  </div>
+</header>
+
+{% if not archive_view and completed_editor_view %}
+<div class="archive-rule-note">
+  Archive rule: completed tasks dated before <strong>{{ archive_cutoff }}</strong> are eligible, except tasks still marked <strong>Pending for Billing</strong>. Archiving only sets the Archive flag; the Google Sheet row is not moved or deleted.
+</div>
+{% elif archive_view %}
+<div class="archive-rule-note">
+  These records have <strong>Archived = Yes</strong> in the Tasks sheet. Filters below work the same as on the Completed Tasks page.
+</div>
+{% endif %}
+
+<div class="task-colour-guide">
+  <span class="colour-guide-title">Colour Guide:</span>
+  <span class="colour-guide-item"><span class="colour-box colour-completed"></span>Task Completed</span>
+  <span class="colour-guide-item"><span class="colour-box colour-checking-completed"></span>Checking Completed</span>
+  <span class="colour-guide-item"><span class="urgent-border-sample"></span>Urgent</span>
+</div>
+
+{% if completed_editor_view %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h2>{{ total_tasks }} {{ 'archived' if archive_view else 'completed' }} item{{ '' if total_tasks == 1 else 's' }}</h2>
+      <p>
+        {% if archive_view %}
+          Archived main tasks appear under the assignee. Their archived completed checking responsibilities appear under the checker.
+        {% else %}
+          Completed main tasks appear under the assignee. Completed checking responsibilities appear under the checker.
+        {% endif %}
+      </p>
+    </div>
+  </div>
+
+  {% if advocates %}
+  <div class="table-wrap advocate-table-wrap">
+    <table class="advocate-wise-table completed-advocate-table">
+      <thead>
+        <tr>
+          {% for advocate in advocates %}
+          <th>
+            <div class="advocate-column-heading">
+              <span class="advocate-name">{{ advocate }}</span>
+              <span class="advocate-task-count">
+                {{ assigned_completed_counts.get(advocate, 0) }} task {{ 'archived' if archive_view else 'completed' }}
+                {% if checking_completed_counts.get(advocate, 0) %}
+                  · {{ checking_completed_counts.get(advocate, 0) }} checking {{ 'archived' if archive_view else 'completed' }}
+                {% endif %}
+              </span>
+            </div>
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+      {% if task_rows %}
+        {% for row in task_rows %}
+        <tr>
+          {% for task in row %}
+          <td>
+            {% if task %}
+              {% set is_checking_completed = task.get('_display_type') == 'checking_completed' %}
+              {% set priority = task.get('Priority', '')|trim|lower %}
+              {% set classes = 'advocate-task-item task-status-completed' %}
+              {% if is_checking_completed %}{% set classes = classes ~ ' task-for-checking-completed' %}{% endif %}
+              {% if priority == 'urgent' %}{% set classes = classes ~ ' task-priority-urgent' %}{% endif %}
+              {% if archive_view %}{% set classes = classes ~ ' archived-task-card' %}{% endif %}
+
+              <div class="{{ classes }}{% if archive_view or is_checking_completed or not task.get('_can_open') %} task-read-only{% endif %}" title="{{ 'Archived record' if archive_view else 'Completed task' }}">
+
+                <div class="task-card-top">
+                  <span class="responsibility-badge responsibility-{{ 'checking-completed' if is_checking_completed else 'assigned' }}">
+                    {{ task.get('_display_label') }}{% if is_checking_completed %} — {{ task.get('_checking_outcome') }}{% endif %}
+                  </span>
+                  <span class="task-priority-badge task-priority-badge-{{ priority or 'normal' }}">
+                    {{ task.get('Priority') or 'Normal' }}
+                  </span>
+                </div>
+
+                {% if archive_view %}
+                  <span class="archive-badge">ARCHIVED</span>
+                {% endif %}
+
+                {% set client_display = task.get('Client Code', '') or task.get('Client Name', '') %}
+                <div class="task-card-text">
+                  {% if client_display %}<strong>{{ client_display }}</strong>{% endif %}
+                  {% if task.get('Matter / Project') %}{% if client_display %} - {% endif %}{{ task.get('Matter / Project') }}{% endif %}
+                  {% if task.get('Task Description') %}{% if client_display or task.get('Matter / Project') %} - {% endif %}{{ task.get('Task Description') }}{% endif %}
+                </div>
+
+                {% if is_checking_completed %}
+                  <small class="task-card-meta">Prepared by: {{ task.get('Assigned To') or 'Unassigned' }}</small>
+                  <small class="task-card-meta checking-outcome">Outcome: {{ task.get('_checking_outcome') }}</small>
+                  <small class="task-card-meta">Checked: {{ task.get('Checking Completed At') or '—' }}{% if task.get('Checking Completed By') %} by {{ task.get('Checking Completed By') }}{% endif %}</small>
+                  {% if task.get('_checking_outcome') == 'Accepted' and task.get('Checking Comment') %}
+                    <small class="task-card-meta">Comment: {{ task.get('Checking Comment') }}</small>
+                  {% endif %}
+                  {% if task.get('_checking_outcome') == 'Changes Required' and task.get('Changes Required Comment') %}
+                    <small class="task-card-meta task-card-warning">Changes: {{ task.get('Changes Required Comment') }}</small>
+                  {% endif %}
+                {% else %}
+                  <small class="task-card-meta">Completed: {{ task.get('Completion Date') or task.get('_completed_at') or '—' }}</small>
+                  <small class="task-card-meta">Completion approved by: <strong>{{ task.get('Completion Approved By') or 'Not recorded' }}</strong></small>
+                  {% if task.get('Completion Approved At') %}<small class="task-card-meta">Approved on: {{ task.get('Completion Approved At') }}</small>{% endif %}
+                  {% if task.get('Checking Completed By') %}<small class="task-card-meta">Checked by: {{ task.get('Checking Completed By') }}</small>{% endif %}
+                {% endif %}
+
+                {% if not is_checking_completed %}
+                  <div class="billing-status-block">
+                    {% if task.get('_billing_pending') %}
+                      <span class="billing-badge billing-pending-badge">☑ PENDING FOR BILLING</span>
+                      <small class="task-card-meta billing-meta">Flagged: {{ task.get('Billing Flagged At') or '—' }}{% if task.get('Billing Flagged By') %} by {{ task.get('Billing Flagged By') }}{% endif %}</small>
+                    {% elif task.get('_billing_completed') %}
+                      <span class="billing-badge billing-completed-badge">✓ BILLING COMPLETED</span>
+                      <small class="task-card-meta billing-meta">Completed: {{ task.get('Billing Completed At') or '—' }}{% if task.get('Billing Completed By') %} by {{ task.get('Billing Completed By') }}{% endif %}</small>
+                    {% endif %}
+
+                    {% if task.get('_can_mark_billing') %}
+                      <form method="post" action="{{ url_for('mark_pending_billing', task_id=task.get('Task ID')) }}" class="billing-inline-form" onsubmit="return confirm('Mark this completed task as Time to Bill');">
+                        <button class="btn btn-small billing-flag-button" type="submit">☐ Time to Bill</button>
+                      </form>
+                    {% endif %}
+                    {% if task.get('_can_close_billing') %}
+                      <form method="post" action="{{ url_for('mark_billing_complete', task_id=task.get('Task ID')) }}" class="billing-inline-form" onsubmit="return confirm('Confirm that billing is completed for this task? This closes the Pending for Billing flag.');">
+                        <button class="btn btn-small billing-complete-button" type="submit">Mark Billing Done</button>
+                      </form>
+                    {% endif %}
+                  </div>
+
+                  {% if not archive_view and task.get('_can_open') %}
+                    <a class="btn btn-small btn-secondary completed-open-task-link" href="{{ url_for('edit_task', task_id=task.get('Task ID')) }}">Open Task</a>
+                  {% endif %}
+                {% endif %}
+
+                {% if archive_view %}
+                  <small class="task-card-meta archive-meta">Archived: {{ task.get('Archived At') or '—' }}{% if task.get('Archived By') %} by {{ task.get('Archived By') }}{% endif %}</small>
+                  <form
+                    method="post"
+                    action="{{ url_for('restore_archived_task', task_id=task.get('Task ID')) }}"
+                    class="restore-archive-form"
+                    onsubmit="return confirm('Restore this task to Completed Tasks?');"
+                  >
+                    <button class="btn btn-small btn-secondary" type="submit">Restore</button>
+                  </form>
+                {% endif %}
+
+              </div>
+            {% else %}
+              <span class="empty-task-cell">—</span>
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      {% else %}
+        <tr><td colspan="{{ advocates|length }}" class="empty-cell">No {{ 'archived' if archive_view else 'completed' }} tasks or checking responsibilities match the selected filters.</td></tr>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty-state">No users are available.</div>
+  {% endif %}
+</section>
+{% else %}
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h2>{{ total_tasks }} {{ 'archived' if archive_view else 'completed' }} item{{ '' if total_tasks == 1 else 's' }}</h2>
+      <p>Only your own {{ 'archived' if archive_view else 'completed' }} task and checking records are listed below.</p>
+    </div>
+  </div>
+
+  {% if completed_items %}
+  <div class="table-wrap completed-task-table-wrap">
+    <table class="completed-task-table">
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Client</th>
+          <th>Matter / Project</th>
+          <th>Task Description</th>
+          <th>Priority</th>
+          <th>Completed / Checked At</th>
+          <th>Approved / Checked By</th>
+          <th>Outcome</th>
+          <th>Remarks</th>
+          <th>Billing</th>
+          {% if archive_view %}<th>Archived</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for task in completed_items %}
+          {% set is_checking = task.get('_display_type') == 'checking_completed' %}
+          {% set priority = task.get('Priority', 'Normal')|trim|lower %}
+          <tr class="{{ 'checking-completed-row' if is_checking else 'task-completed-row' }}">
+            <td>
+              <span class="responsibility-badge responsibility-{{ 'checking-completed' if is_checking else 'assigned' }}">
+                {{ task.get('_display_label') }}
+              </span>
+              {% if archive_view %}<span class="archive-badge">ARCHIVED</span>{% endif %}
+            </td>
+            <td>
+              {% if task.get('Client Code') %}<strong>{{ task.get('Client Code') }}</strong>{% endif %}
+              {% if task.get('Client Name') %}<small>{{ task.get('Client Name') }}</small>{% endif %}
+              {% if task.get('Entity Name') %}<small>{{ task.get('Entity Name') }}</small>{% endif %}
+            </td>
+            <td>{{ task.get('Matter / Project') or '—' }}</td>
+            <td>{{ task.get('Task Description') or '—' }}</td>
+            <td>
+              <span class="task-priority-badge task-priority-badge-{{ priority or 'normal' }}">
+                {{ task.get('Priority') or 'Normal' }}
+              </span>
+            </td>
+            <td>{{ task.get('_completed_at') or 'Not recorded' }}</td>
+            <td>{{ task.get('_completed_by') or 'Not recorded' }}</td>
+            <td><strong>{{ task.get('_outcome') or '—' }}</strong></td>
+            <td>
+              {% if is_checking and task.get('_outcome') == 'Accepted' %}
+                {{ task.get('Checking Comment') or '—' }}
+              {% elif is_checking %}
+                {{ task.get('Changes Required Comment') or '—' }}
+              {% elif task.get('Checking Completed By') %}
+                Checked by {{ task.get('Checking Completed By') }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>
+              {% if is_checking %}
+                —
+              {% elif task.get('_billing_pending') %}
+                <span class="billing-badge billing-pending-badge">☑ PENDING</span>
+                <small>{{ task.get('Billing Flagged At') or '—' }}{% if task.get('Billing Flagged By') %} · {{ task.get('Billing Flagged By') }}{% endif %}</small>
+                {% if task.get('_can_close_billing') %}
+                  <form method="post" action="{{ url_for('mark_billing_complete', task_id=task.get('Task ID')) }}" class="billing-inline-form" onsubmit="return confirm('Confirm that billing is completed for this task?');">
+                    <button class="btn btn-small billing-complete-button" type="submit">Mark Billing Done</button>
+                  </form>
+                {% endif %}
+              {% elif task.get('_billing_completed') %}
+                <span class="billing-badge billing-completed-badge">✓ BILLED</span>
+                <small>{{ task.get('Billing Completed At') or '—' }}{% if task.get('Billing Completed By') %} · {{ task.get('Billing Completed By') }}{% endif %}</small>
+              {% elif task.get('_can_mark_billing') %}
+                <form method="post" action="{{ url_for('mark_pending_billing', task_id=task.get('Task ID')) }}" class="billing-inline-form" onsubmit="return confirm('Mark this completed task as Time to Bill');">
+                  <button class="btn btn-small billing-flag-button" type="submit">☐ Time to Bill</button>
+                </form>
+              {% else %}
+                Not marked
+              {% endif %}
+            </td>
+            {% if archive_view %}
+              <td>{{ task.get('Archived At') or '—' }}{% if task.get('Archived By') %}<small>{{ task.get('Archived By') }}</small>{% endif %}</td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="empty-state">No {{ 'archived' if archive_view else 'completed' }} tasks match the selected filters.</div>
+  {% endif %}
+</section>
+{% endif %}
+
+<form method="get" action="{{ url_for(page_endpoint) }}" class="panel filter-panel ongoing-filter-panel">
+  <div class="panel-header">
+    <div>
+      <h2>Filter {{ 'Archived' if archive_view else 'Completed' }} Items</h2>
+      <p>
+        {% if completed_editor_view %}
+          The associate filter includes {{ 'archived' if archive_view else 'completed' }} main tasks and {{ 'archived' if archive_view else 'completed' }} checking responsibilities.
+        {% else %}
+          Filters apply only to your {{ 'archived' if archive_view else 'completed' }} records.
+        {% endif %}
+      </p>
+    </div>
+  </div>
+  <div class="filter-grid">
+    <label>Search<input type="search" name="q" value="{{ request.args.get('q', '') }}" placeholder="Client code, matter, task or checker"></label>
+    {% if completed_editor_view %}
+    <label>Associate<select name="assigned_to"><option value="">All associates</option>{% for advocate in completed_filter_advocates %}<option value="{{ advocate }}" {{ 'selected' if request.args.get('assigned_to', '') == advocate else '' }}>{{ advocate }}</option>{% endfor %}</select></label>
+    {% endif %}
+    <label>Client<input type="text" name="client" value="{{ request.args.get('client', '') }}" placeholder="Client code or name"></label>
+    <label>Priority<select name="priority"><option value="">All priorities</option>{% for priority in masters.get('Priority', []) %}<option value="{{ priority }}" {{ 'selected' if request.args.get('priority', '') == priority else '' }}>{{ priority }}</option>{% endfor %}</select></label>
+    <label>Billing Status
+      <select name="billing_status">
+        <option value="">All billing statuses</option>
+        <option value="pending" {{ 'selected' if request.args.get('billing_status', '') == 'pending' else '' }}>Pending for Billing</option>
+        <option value="completed" {{ 'selected' if request.args.get('billing_status', '') == 'completed' else '' }}>Billing Completed</option>
+        <option value="not_marked" {{ 'selected' if request.args.get('billing_status', '') == 'not_marked' else '' }}>Not Marked for Billing</option>
+      </select>
+    </label>
+    <label>Completed Month<input type="month" name="completed_month" value="{{ request.args.get('completed_month', '') }}"></label>
+  </div>
+  <div class="filter-actions">
+    <a class="btn btn-secondary" href="{{ url_for(page_endpoint) }}">Clear Filters</a>
+    <button class="btn btn-primary" type="submit">Apply Filters</button>
+  </div>
+</form>
+{% endblock %}
