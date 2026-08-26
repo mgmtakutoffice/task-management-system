@@ -1,0 +1,73 @@
+services:
+  - type: web
+    name: office-task-manager
+    runtime: python
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --worker-class gthread --threads 8 --timeout 120
+    envVars:
+      - key: DATA_BACKEND
+        value: google
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SESSION_COOKIE_SECURE
+        value: true
+
+      # Google Sheets backend
+      - key: SHEET_ID
+        sync: false
+      - key: ACTIVITY_SHEET_ID
+        sync: false
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+      - key: TASK_EDITOR_EMAILS
+        sync: false
+      - key: BILLING_ADMIN_EMAIL
+        sync: false
+
+      # In-app Bell + native Browser/Web Push
+      - key: NOTIFICATIONS_SHEET_NAME
+        value: Notifications
+      - key: PUSH_SUBSCRIPTIONS_SHEET_NAME
+        value: Push Subscriptions
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+
+      # Separate append-only activity spreadsheet
+      - key: ACTIVITY_SHEET_NAME
+        value: Task Activity Log
+
+  - type: cron
+    name: pending-client-digest
+    runtime: python
+    region: singapore
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python send_pending_client_digest.py
+    # Render cron schedules use UTC. 03:30 UTC = 09:00 IST.
+    schedule: "30 3 1,11,21 * *"
+    envVars:
+      - key: DATA_BACKEND
+        value: google
+      - key: SHEET_ID
+        sync: false
+      - key: ACTIVITY_SHEET_ID
+        sync: false
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+      - key: ACTIVITY_SHEET_NAME
+        value: Task Activity Log
+      - key: GMAIL_OAUTH_TOKEN_JSON
+        sync: false
+      - key: GMAIL_FROM_EMAIL
+        sync: false
+      - key: GMAIL_FROM_NAME
+        value: Anand Akut & Associates
+      - key: PENDING_CLIENT_DIGEST_RECIPIENTS
+        sync: false
+      - key: TASK_MANAGER_URL
+        sync: false
