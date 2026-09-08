@@ -1565,6 +1565,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 session.permanent = True
                 session["user_email"] = user.get("Email", "").strip().lower()
                 session["user_name"] = user.get("Name", "").strip()
+                session["login_id"] = uuid.uuid4().hex
                 next_url = request.args.get("next", "")
                 return redirect(
                     next_url
