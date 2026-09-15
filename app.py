@@ -92,7 +92,28 @@ ACTIVITY_COMPARE_FIELDS = [
     "Deleted",
 ]
 
+ADVOCATE_DISPLAY_ORDER = [
+    "Adv. Anand",
+    "Adv. Prajakta",
+    "Adv. Neeraj",
+    "Adv. Madhura",
+    "Adv. Devashree",
+    "Adv. Sayali",
+    "Adv. Vaidehi",
+    "Adv. Manju"
+]
 
+def advocate_display_sort_key(name: str):
+    preferred = {
+        item.lower(): index
+        for index, item in enumerate(ADVOCATE_DISPLAY_ORDER)
+    }
+    clean_name = str(name).strip()
+    return (
+        preferred.get(clean_name.lower(), len(preferred)),
+        clean_name.lower(),
+    )
+    
 def create_app(config_override: dict[str, Any] | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -1724,7 +1745,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 default=0,
             )
             for name, counts in sorted(
-                associate_summary.items(), key=lambda item: item[0].lower()
+                associate_summary.items(), key=lambda item: advocate_display_sort_key(item[0])
             ):
                 active_total = counts["ongoing"] + counts["checking"]
                 associate_workload.append(
@@ -2886,7 +2907,8 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         if selected_advocate:
             advocates = [selected_advocate]
         else:
-            advocates.sort(key=str.lower)
+            #advocates.sort(key=str.lower)
+            advocates.sort(key=advocate_display_sort_key)
 
         # Count main ongoing tasks only. A completed checking record must not
         # inflate the count when the page is filtered by the checker.
@@ -3271,7 +3293,8 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 if responsible_name not in advocates:
                     advocates.append(responsible_name)
 
-            advocates.sort(key=str.lower)
+            #advocates.sort(key=str.lower)
+            advocates.sort(key=advocate_display_sort_key)
             completed_filter_advocates = list(advocates)
 
             selected_advocate = request.args.get("assigned_to", "").strip()
