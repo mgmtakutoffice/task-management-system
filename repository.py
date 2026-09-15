@@ -530,7 +530,7 @@ class GoogleSheetsRepository(TaskRepository):
                     spreadsheetId=target_spreadsheet_id,
                     range=f"'{sheet_name}'!{range_suffix}",
                 )
-                .execute()
+                .execute(num_retries=3)
             )
         return result.get("values", [])
 
