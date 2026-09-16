@@ -1496,14 +1496,15 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         return updated
 
     def get_task(task_id: str) -> dict[str, str] | None:
-        return next(
-            (
-                row
-                for row in repo().get_tasks()
-                if row.get("Task ID") == task_id and not is_deleted(row)
-            ),
-            None,
-        )
+        task = repo().get_task(task_id)
+
+        if not task:
+            return None
+
+        if is_deleted(task):
+            return None
+
+        return task
 
     @app.context_processor
     def inject_globals() -> dict[str, Any]:
