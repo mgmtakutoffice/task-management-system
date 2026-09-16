@@ -37,19 +37,19 @@ class TaskRepository(ABC):
 
     def get_task(self, task_id: str) -> dict[str, str] | None:
     """Return one task by Task ID."""
-    normalized_task_id = str(task_id or "").strip()
+        normalized_task_id = str(task_id or "").strip()
 
-    if not normalized_task_id:
-        return None
+        if not normalized_task_id:
+            return None
 
-    return next(
-        (
-            row
-            for row in self.get_tasks()
-            if str(row.get("Task ID", "")).strip() == normalized_task_id
-        ),
-        None,
-    )
+        return next(
+            (
+                row
+                for row in self.get_tasks()
+                if str(row.get("Task ID", "")).strip() == normalized_task_id
+            ),
+            None,
+        )
 
     @abstractmethod
     def add_task(self, task: dict[str, str]) -> None:
