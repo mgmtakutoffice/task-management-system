@@ -1519,7 +1519,13 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
     @app.context_processor
     def inject_globals() -> dict[str, Any]:
         approval_count = 0
-        if session.get("user_email") and is_task_editor():
+        #if session.get("user_email") and is_task_editor():
+        #    approval_count = pending_approval_count()
+        if (
+            not app.config.get("STARTUP_ERROR")
+            and session.get("user_email")
+            and is_task_editor()
+        ):
             approval_count = pending_approval_count()
         return {
             "current_user": current_user(),
