@@ -4,7 +4,7 @@ services:
     runtime: python
     region: singapore
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 1 --worker-class gthread --threads 8 --timeout 120
+    startCommand: gunicorn app:app --workers 1 --worker-class gthread --threads 2 --timeout 120 --max-requests 75 --max-requests-jitter 15
     envVars:
       - key: DATA_BACKEND
         value: google
