@@ -28,6 +28,8 @@ from flask import (  # noqa: E402
     send_from_directory,
     session,
     url_for,
+    g,
+    has_request_context,
 )
 from werkzeug.security import check_password_hash  # noqa: E402
 
@@ -190,7 +192,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         if key not in cache:
             cache[key] = loader()
         return cache[key]
-
+    
     def active_users() -> list[dict[str, str]]:
         def load() -> list[dict[str, str]]:
             return sorted(
