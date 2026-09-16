@@ -1137,32 +1137,50 @@ class GoogleSheetsRepository(TaskRepository):
         return records
 
     def mark_notification_read(
-        self, notification_id: str, user_email: str, read_at: str
+        self,
+        notification_id: str,
+        user_email: str,
+        read_at: str,
     ) -> bool:
-        normalized_email = str(user_email).strip().lower()
+        """Mark one notification read using only identity columns A:B."""
+        normalized_email = str(user_email or "").strip().lower()
+        notification_id = str(notification_id or "").strip()
 
-        with self._google_lock:
-            target = next(
-                (
-                    row
-                    for row in self.get_notifications(normalized_email)
-                    if row.get("Notification ID") == notification_id
-                ),
-                None,
-            )
+        if not notification_id or not normalized_email:
+            return False
 
-            if not target:
-                return False
+        values = self._get_values(
+            self.notifications_sheet_name,
+            "A:B",
+        )
 
-            row_number = int(target["_sheet_row"])
+        if not values:
+            return False
 
-            self._update_values(
-                f"'{self.notifications_sheet_name}'!"
-                f"I{row_number}:J{row_number}",
-                [["Yes", read_at]],
-            )
+        headers = values[0]
 
-        return True
+        for sheet_row, row in enumerate(values[1:], start=2):
+            if not row:
+                continue
+
+            source = _row_to_dict(headers, row)
+
+            if (
+                str(source.get("Notification ID", "")).strip()
+                == notification_id
+                and str(source.get("User Email", "")).strip().lower()
+                == normalized_email
+            ):
+                self._update_values(
+                    (
+                        f"'{self.notifications_sheet_name}'!"
+                        f"I{sheet_row}:J{sheet_row}"
+                    ),
+                    [["Yes", read_at]],
+                )
+                return True
+
+        return False
 
     def save_push_subscription(self, subscription: dict[str, str]) -> None:
         endpoint = str(subscription.get("Endpoint", "")).strip()
@@ -1264,38 +1282,50 @@ class GoogleSheetsRepository(TaskRepository):
         return records
 
     def deactivate_push_subscription(
-        self, endpoint: str, user_email: str, last_seen_at: str
+        self,
+        endpoint: str,
+        user_email: str,
+        last_seen_at: str,
     ) -> bool:
-        normalized_email = str(user_email).strip().lower()
-        endpoint = str(endpoint).strip()
+        """Deactivate one endpoint using only User Email + Endpoint columns."""
+        normalized_email = str(user_email or "").strip().lower()
+        endpoint = str(endpoint or "").strip()
 
-        with self._google_lock:
-            target = next(
-                (
-                    row
-                    for row in self.get_push_subscriptions(
-                        normalized_email
-                    )
-                    if row.get("Endpoint", "").strip() == endpoint
-                ),
-                None,
-            )
+        if not normalized_email or not endpoint:
+            return False
 
-            if not target:
-                return False
+        values = self._get_values(
+            self.push_subscriptions_sheet_name,
+            "B:C",
+        )
 
-            row_number = int(target["_sheet_row"])
+        if not values:
+            return False
 
-            # Last Seen At = I, Active = J.
-            self._update_values(
-                (
-                    f"'{self.push_subscriptions_sheet_name}'!"
-                    f"I{row_number}:J{row_number}"
-                ),
-                [[last_seen_at, "No"]],
-            )
+        headers = values[0]
 
-        return True
+        for sheet_row, row in enumerate(values[1:], start=2):
+            if not row:
+                continue
+
+            source = _row_to_dict(headers, row)
+
+            if (
+                str(source.get("User Email", "")).strip().lower()
+                == normalized_email
+                and str(source.get("Endpoint", "")).strip() == endpoint
+            ):
+                # Last Seen At = I, Active = J.
+                self._update_values(
+                    (
+                        f"'{self.push_subscriptions_sheet_name}'!"
+                        f"I{sheet_row}:J{sheet_row}"
+                    ),
+                    [[last_seen_at, "No"]],
+                )
+                return True
+
+        return False
 
     def get_users(self) -> list[dict[str, str]]:
         values = self._get_values(
@@ -1434,9 +1464,9 @@ def build_repository(config: Any) -> TaskRepository:
             "DATA_BACKEND must be either 'local' or 'google'."
         )
 
-        # Local storage always needs its files/folders prepared.
-    # Google Sheets structure is already established in production, so avoid
-    # repeatedly reading every sheet/header whenever Gunicorn restarts.
+    # Local storage always needs its files/folders prepared. Production Google
+    # Sheets already have their structure, so avoid repeated header reads on
+    # every Gunicorn worker restart unless explicitly requested.
     should_ensure_structure = (
         backend == "local"
         or str(
