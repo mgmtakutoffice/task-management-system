@@ -273,6 +273,8 @@ if (notificationRoot) {
   const pushConfigured = notificationRoot.dataset.pushConfigured === 'true';
   const vapidPublicKey = notificationRoot.dataset.vapidPublicKey || '';
   const shownStorageKey = `task-manager-shown-notifications:${notificationUser}`;
+  const pushSyncStorageKey = `task-manager-push-sync:${notificationUser}`;
+  const PUSH_SYNC_TTL_MS = 12 * 60 * 60 * 1000;
 
   let notificationFetchInFlight = false;
   let audioContext = null;
@@ -530,7 +532,35 @@ if (notificationRoot) {
     if (pushEnableButton) pushEnableButton.hidden = !showButton;
   };
 
-  const savePushSubscription = async (subscription) => {
+  const savePushSubscription = async (
+    subscription,
+    { force = false } = {},
+  ) => {
+    const subscriptionJson = subscription.toJSON();
+    const endpoint = subscriptionJson.endpoint || '';
+
+    if (!endpoint) {
+      throw new Error('Push subscription endpoint is unavailable.');
+    }
+
+    if (!force) {
+      try {
+        const stored = JSON.parse(
+          localStorage.getItem(pushSyncStorageKey) || '{}',
+        );
+        const sameEndpoint = stored.endpoint === endpoint;
+        const syncedAt = Number(stored.syncedAt);
+        const recentlySynced = (
+          Number.isFinite(syncedAt)
+          && Date.now() - syncedAt < PUSH_SYNC_TTL_MS
+        );
+
+        if (sameEndpoint && recentlySynced) return;
+      } catch (error) {
+        // Continue with server synchronization.
+      }
+    }
+
     const response = await fetch('/api/push/subscribe', {
       method: 'POST',
       credentials: 'same-origin',
@@ -538,9 +568,24 @@ if (notificationRoot) {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
       },
-      body: JSON.stringify({ subscription: subscription.toJSON() }),
+      body: JSON.stringify({ subscription: subscriptionJson }),
     });
-    if (!response.ok) throw new Error('Unable to save browser push subscription.');
+
+    if (!response.ok) {
+      throw new Error('Unable to save browser push subscription.');
+    }
+
+    try {
+      localStorage.setItem(
+        pushSyncStorageKey,
+        JSON.stringify({
+          endpoint,
+          syncedAt: Date.now(),
+        }),
+      );
+    } catch (error) {
+      // localStorage may be unavailable.
+    }
   };
 
   const initializeBrowserPush = async ({ requestPermission = false } = {}) => {
@@ -583,14 +628,22 @@ if (notificationRoot) {
       }
 
       let subscription = await registration.pushManager.getSubscription();
+      let createdSubscription = false;
+
       if (!subscription) {
         subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
         });
+        createdSubscription = true;
       }
 
-      await savePushSubscription(subscription);
+      await savePushSubscription(
+        subscription,
+        {
+          force: requestPermission || createdSubscription,
+        },
+      );
       pushActive = true;
       setPushStatus('Browser notifications enabled.');
       return true;
@@ -695,6 +748,12 @@ if (notificationRoot) {
       } catch (error) {
         // Sign-out must continue even if push cleanup fails.
       } finally {
+        try {
+          localStorage.removeItem(pushSyncStorageKey);
+        } catch (error) {
+          // Ignore storage errors during logout.
+        }
+
         window.clearTimeout(forceNavigate);
         window.location.href = destination;
       }
