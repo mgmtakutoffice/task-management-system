@@ -793,32 +793,32 @@ class GoogleSheetsRepository(TaskRepository):
 
     def get_task(self, task_id: str) -> dict[str, str] | None:
     """Read only the requested task row from Google Sheets."""
-    with self._google_lock:
-        row_number = self._find_task_row_number(task_id)
+        with self._google_lock:
+            row_number = self._find_task_row_number(task_id)
 
-        if row_number is None:
-            return None
+            if row_number is None:
+                return None
 
-        end_column = self._column_letter(len(TASK_HEADERS))
+            end_column = self._column_letter(len(TASK_HEADERS))
 
-        values = self._get_values(
-            self.tasks_sheet_name,
-            f"A{row_number}:{end_column}{row_number}",
-        )
+            values = self._get_values(
+                self.tasks_sheet_name,
+                f"A{row_number}:{end_column}{row_number}",
+            )
 
-        if not values:
-            return None
+            if not values:
+                return None
 
-        source = _row_to_dict(TASK_HEADERS, values[0])
+            source = _row_to_dict(TASK_HEADERS, values[0])
 
-        normalized = {
-            header: source.get(header, "")
-            for header in TASK_HEADERS
-        }
+            normalized = {
+                header: source.get(header, "")
+                for header in TASK_HEADERS
+            }
 
-        normalized["_sheet_row"] = str(row_number)
+            normalized["_sheet_row"] = str(row_number)
 
-        return normalized
+            return normalized
         
     def get_tasks(self) -> list[dict[str, str]]:
         # Read only the columns that belong to TASK_HEADERS. The generic
@@ -853,28 +853,28 @@ class GoogleSheetsRepository(TaskRepository):
     def update_task(self, task_id: str, task: dict[str, str]) -> None:
     """Update one task without loading the complete Tasks sheet."""
 
-    with self._google_lock:
-        row_number = self._find_task_row_number(task_id)
+        with self._google_lock:
+            row_number = self._find_task_row_number(task_id)
 
-        if row_number is None:
-            raise RepositoryError(
-                f"Task {task_id} was not found."
-            )
-
-        end_column = self._column_letter(len(TASK_HEADERS))
-
-        self._update_values(
-            (
-                f"'{self.tasks_sheet_name}'!"
-                f"A{row_number}:{end_column}{row_number}"
-            ),
-            [
-                _dict_to_row(
-                    TASK_HEADERS,
-                    task,
+            if row_number is None:
+                raise RepositoryError(
+                    f"Task {task_id} was not found."
                 )
-            ],
-        )
+
+            end_column = self._column_letter(len(TASK_HEADERS))
+
+            self._update_values(
+                (
+                    f"'{self.tasks_sheet_name}'!"
+                    f"A{row_number}:{end_column}{row_number}"
+                ),
+                [
+                    _dict_to_row(
+                        TASK_HEADERS,
+                        task,
+                    )
+                ],
+            )
 
     def get_task_activities(self) -> list[dict[str, str]]:
         # Digest/reporting currently needs only Activity ID through Activity At.
