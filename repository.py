@@ -1434,11 +1434,26 @@ def build_repository(config: Any) -> TaskRepository:
             "DATA_BACKEND must be either 'local' or 'google'."
         )
 
-    try:
-        repository.ensure_structure()
-    except RepositoryError:
-        raise
-    except Exception as exc:
-        raise RepositoryError(str(exc)) from exc
+        # Local storage always needs its files/folders prepared.
+    # Google Sheets structure is already established in production, so avoid
+    # repeatedly reading every sheet/header whenever Gunicorn restarts.
+    should_ensure_structure = (
+        backend == "local"
+        or str(
+            os.environ.get(
+                "ENSURE_SHEET_STRUCTURE_ON_STARTUP",
+                "false",
+            )
+        ).strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+
+    if should_ensure_structure:
+        try:
+            repository.ensure_structure()
+        except RepositoryError:
+            raise
+        except Exception as exc:
+            raise RepositoryError(str(exc)) from exc
 
     return repository
