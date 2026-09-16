@@ -233,6 +233,56 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             cache[key] = loader()
         return cache[key]
     
+    shared_read_cache_lock = threading.RLock()
+    shared_read_cache: dict[str, tuple[float, Any]] = {}
+
+    ACTIVE_USERS_CACHE_TTL_SECONDS = 60.0
+    ACTIVE_CLIENTS_CACHE_TTL_SECONDS = 60.0
+    MASTERS_CACHE_TTL_SECONDS = 60.0
+    APPROVAL_COUNT_CACHE_TTL_SECONDS = 30.0
+
+    def shared_cached(
+        key: str,
+        ttl_seconds: float,
+        loader: Callable[[], Any],
+    ) -> Any:
+        """Cache small, read-mostly reference data across HTTP requests.
+
+        The cache exists only inside the current Gunicorn worker and is cleared
+        automatically whenever that worker is recycled. Holding the RLock
+        across a cache miss prevents two worker threads from issuing the same
+        Google Sheets read simultaneously.
+        """
+        now = time.monotonic()
+
+        with shared_read_cache_lock:
+            cached = shared_read_cache.get(key)
+            if cached is not None:
+                cached_at, value = cached
+                if now - cached_at < ttl_seconds:
+                    return value
+
+            value = loader()
+            shared_read_cache[key] = (
+                time.monotonic(),
+                value,
+            )
+            return value
+
+    def store_shared_cache(key: str, value: Any) -> None:
+        """Store a freshly calculated value in the short-lived shared cache."""
+        with shared_read_cache_lock:
+            shared_read_cache[key] = (
+                time.monotonic(),
+                value,
+            )
+
+    def invalidate_shared_cache(*keys: str) -> None:
+        """Invalidate selected shared reference-data cache entries."""
+        with shared_read_cache_lock:
+            for key in keys:
+                shared_read_cache.pop(key, None)
+
     def active_users() -> list[dict[str, str]]:
         def load() -> list[dict[str, str]]:
             return sorted(
@@ -248,7 +298,14 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 ),
             )
 
-        return request_cached("active_users", load)
+        return request_cached(
+            "active_users",
+            lambda: shared_cached(
+                "active_users",
+                ACTIVE_USERS_CACHE_TTL_SECONDS,
+                load,
+            ),
+        )
 
     def active_clients() -> list[dict[str, str]]:
         def load() -> list[dict[str, str]]:
@@ -266,7 +323,14 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 ),
             )
 
-        return request_cached("active_clients", load)
+        return request_cached(
+            "active_clients",
+            lambda: shared_cached(
+                "active_clients",
+                ACTIVE_CLIENTS_CACHE_TTL_SECONDS,
+                load,
+            ),
+        )
 
     def masters() -> dict[str, list[str]]:
         def load() -> dict[str, list[str]]:
@@ -305,7 +369,14 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             )
             return data
 
-        return request_cached("masters", load)
+        return request_cached(
+            "masters",
+            lambda: shared_cached(
+                "masters",
+                MASTERS_CACHE_TTL_SECONDS,
+                load,
+            ),
+        )
 
     def current_user() -> dict[str, str]:
         return {
@@ -1010,12 +1081,42 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         return bool(due and due < date.today() and not is_completed(task))
 
     def pending_approval_count() -> int:
-        """Return nav approval count without loading every task column."""
+        """Return the nav approval count with minimal Google Sheets reads.
+
+        If this request has already loaded the complete task list, calculate the
+        count from that in-memory list and refresh the short-lived shared count.
+        Lightweight pages otherwise use the repository's narrow three-column
+        query, cached across requests for 30 seconds.
+        """
+        if has_request_context():
+            request_cache = getattr(g, "_tms_request_cache", None)
+            if request_cache and "enriched_tasks" in request_cache:
+                tasks = request_cache["enriched_tasks"]
+                count = sum(
+                    1
+                    for task in tasks
+                    if is_pending_approval(task)
+                    and task.get(
+                        "Completion Approval Status",
+                        "",
+                    ).strip().lower()
+                    in {"", APPROVAL_PENDING.lower()}
+                )
+                store_shared_cache(
+                    "pending_approval_count",
+                    count,
+                )
+                return count
+
         return request_cached(
             "pending_approval_count",
-            lambda: repo().get_pending_approval_count(
-                PENDING_APPROVAL_STATUS,
-                APPROVAL_PENDING,
+            lambda: shared_cached(
+                "pending_approval_count",
+                APPROVAL_COUNT_CACHE_TTL_SECONDS,
+                lambda: repo().get_pending_approval_count(
+                    PENDING_APPROVAL_STATUS,
+                    APPROVAL_PENDING,
+                ),
             ),
         )
 
@@ -1934,6 +2035,10 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         }
         try:
             repo().add_client(client)
+            invalidate_shared_cache(
+                "active_clients",
+                "masters",
+            )
             flash(f"Client {client_code} - {client_name} has been added.", "success")
         except RepositoryError as exc:
             flash(str(exc), "danger")
