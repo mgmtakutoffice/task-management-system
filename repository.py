@@ -35,6 +35,22 @@ class TaskRepository(ABC):
     def get_tasks(self) -> list[dict[str, str]]:
         raise NotImplementedError
 
+    def get_task(self, task_id: str) -> dict[str, str] | None:
+    """Return one task by Task ID."""
+    normalized_task_id = str(task_id or "").strip()
+
+    if not normalized_task_id:
+        return None
+
+    return next(
+        (
+            row
+            for row in self.get_tasks()
+            if str(row.get("Task ID", "")).strip() == normalized_task_id
+        ),
+        None,
+    )
+
     @abstractmethod
     def add_task(self, task: dict[str, str]) -> None:
         raise NotImplementedError
@@ -747,6 +763,63 @@ class GoogleSheetsRepository(TaskRepository):
             result = chr(65 + remainder) + result
         return result
 
+
+    def _find_task_row_number(self, task_id: str) -> int | None:
+        """Find a task row by reading only the Task ID column."""
+        normalized_task_id = str(task_id or "").strip()
+
+        if not normalized_task_id:
+            return None
+
+        values = self._get_values(
+            self.tasks_sheet_name,
+            "A:A",
+        )
+
+        if not values:
+            return None
+
+        # Row 1 is the header. Actual task data starts at row 2.
+        for row_number, row in enumerate(values[1:], start=2):
+            if not row:
+                continue
+
+            existing_task_id = str(row[0]).strip()
+
+            if existing_task_id == normalized_task_id:
+                return row_number
+
+        return None
+
+    def get_task(self, task_id: str) -> dict[str, str] | None:
+    """Read only the requested task row from Google Sheets."""
+    with self._google_lock:
+        row_number = self._find_task_row_number(task_id)
+
+        if row_number is None:
+            return None
+
+        end_column = self._column_letter(len(TASK_HEADERS))
+
+        values = self._get_values(
+            self.tasks_sheet_name,
+            f"A{row_number}:{end_column}{row_number}",
+        )
+
+        if not values:
+            return None
+
+        source = _row_to_dict(TASK_HEADERS, values[0])
+
+        normalized = {
+            header: source.get(header, "")
+            for header in TASK_HEADERS
+        }
+
+        normalized["_sheet_row"] = str(row_number)
+
+        return normalized
+        
     def get_tasks(self) -> list[dict[str, str]]:
         # Read only the columns that belong to TASK_HEADERS. The generic
         # _get_values default extends to ZZ, which can pull hundreds of
@@ -778,27 +851,30 @@ class GoogleSheetsRepository(TaskRepository):
         )
 
     def update_task(self, task_id: str, task: dict[str, str]) -> None:
-        # Keep the row lookup and row update in one critical section. This
-        # prevents another request from changing the sheet between locating
-        # the task row and writing the revised task.
-        with self._google_lock:
-            target = next(
-                (
-                    row
-                    for row in self.get_tasks()
-                    if row.get("Task ID") == task_id
-                ),
-                None,
+    """Update one task without loading the complete Tasks sheet."""
+
+    with self._google_lock:
+        row_number = self._find_task_row_number(task_id)
+
+        if row_number is None:
+            raise RepositoryError(
+                f"Task {task_id} was not found."
             )
-            if not target:
-                raise RepositoryError(f"Task {task_id} was not found.")
-            row_number = int(target["_sheet_row"])
-            end_column = self._column_letter(len(TASK_HEADERS))
-            self._update_values(
-                f"'{self.tasks_sheet_name}'!A{row_number}:"
-                f"{end_column}{row_number}",
-                [_dict_to_row(TASK_HEADERS, task)],
-            )
+
+        end_column = self._column_letter(len(TASK_HEADERS))
+
+        self._update_values(
+            (
+                f"'{self.tasks_sheet_name}'!"
+                f"A{row_number}:{end_column}{row_number}"
+            ),
+            [
+                _dict_to_row(
+                    TASK_HEADERS,
+                    task,
+                )
+            ],
+        )
 
     def get_task_activities(self) -> list[dict[str, str]]:
         # Digest/reporting currently needs only Activity ID through Activity At.
