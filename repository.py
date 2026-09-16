@@ -36,7 +36,7 @@ class TaskRepository(ABC):
         raise NotImplementedError
 
     def get_task(self, task_id: str) -> dict[str, str] | None:
-    """Return one task by Task ID."""
+        """Return one task by Task ID."""
         normalized_task_id = str(task_id or "").strip()
 
         if not normalized_task_id:
@@ -763,7 +763,6 @@ class GoogleSheetsRepository(TaskRepository):
             result = chr(65 + remainder) + result
         return result
 
-
     def _find_task_row_number(self, task_id: str) -> int | None:
         """Find a task row by reading only the Task ID column."""
         normalized_task_id = str(task_id or "").strip()
@@ -792,7 +791,7 @@ class GoogleSheetsRepository(TaskRepository):
         return None
 
     def get_task(self, task_id: str) -> dict[str, str] | None:
-    """Read only the requested task row from Google Sheets."""
+        """Read only the requested task row from Google Sheets."""
         with self._google_lock:
             row_number = self._find_task_row_number(task_id)
 
@@ -815,25 +814,30 @@ class GoogleSheetsRepository(TaskRepository):
                 header: source.get(header, "")
                 for header in TASK_HEADERS
             }
-
             normalized["_sheet_row"] = str(row_number)
 
             return normalized
-        
+
     def get_tasks(self) -> list[dict[str, str]]:
         # Read only the columns that belong to TASK_HEADERS. The generic
         # _get_values default extends to ZZ, which can pull hundreds of
         # irrelevant columns if stray/formula values exist in the sheet and
-        # can create a large transient memory spike on a 512 MB instance.
+        # can create a large transient memory spike.
         end_column = self._column_letter(len(TASK_HEADERS))
-        values = self._get_values(self.tasks_sheet_name, f"A:{end_column}")
+        values = self._get_values(
+            self.tasks_sheet_name,
+            f"A:{end_column}",
+        )
         if not values:
             return []
+
         headers = values[0]
         records: list[dict[str, str]] = []
+
         for sheet_row, row in enumerate(values[1:], start=2):
             if not any(str(value).strip() for value in row):
                 continue
+
             source = _row_to_dict(headers, row)
             normalized = {
                 header: source.get(header, "")
@@ -841,6 +845,7 @@ class GoogleSheetsRepository(TaskRepository):
             }
             normalized["_sheet_row"] = str(sheet_row)
             records.append(normalized)
+
         return records
 
     def add_task(self, task: dict[str, str]) -> None:
@@ -851,8 +856,7 @@ class GoogleSheetsRepository(TaskRepository):
         )
 
     def update_task(self, task_id: str, task: dict[str, str]) -> None:
-    """Update one task without loading the complete Tasks sheet."""
-
+        """Update one task without loading the complete Tasks sheet."""
         with self._google_lock:
             row_number = self._find_task_row_number(task_id)
 
@@ -868,12 +872,7 @@ class GoogleSheetsRepository(TaskRepository):
                     f"'{self.tasks_sheet_name}'!"
                     f"A{row_number}:{end_column}{row_number}"
                 ),
-                [
-                    _dict_to_row(
-                        TASK_HEADERS,
-                        task,
-                    )
-                ],
+                [_dict_to_row(TASK_HEADERS, task)],
             )
 
     def get_task_activities(self) -> list[dict[str, str]]:
@@ -887,8 +886,10 @@ class GoogleSheetsRepository(TaskRepository):
         )
         if not values:
             return []
+
         headers = values[0]
         records: list[dict[str, str]] = []
+
         for row in values[1:]:
             if not any(str(value).strip() for value in row):
                 continue
@@ -899,6 +900,7 @@ class GoogleSheetsRepository(TaskRepository):
                     for header in TASK_ACTIVITY_HEADERS
                 }
             )
+
         return records
 
     def add_task_activities(
@@ -906,11 +908,13 @@ class GoogleSheetsRepository(TaskRepository):
     ) -> None:
         if not activities:
             return
+
         rows = [
             _dict_to_row(TASK_ACTIVITY_HEADERS, activity)
             for activity in activities
         ]
         end_column = self._column_letter(len(TASK_ACTIVITY_HEADERS))
+
         with self._google_lock:
             (
                 self.service.spreadsheets()
@@ -936,32 +940,42 @@ class GoogleSheetsRepository(TaskRepository):
 
     def get_notifications(self, user_email: str) -> list[dict[str, str]]:
         normalized_email = str(user_email).strip().lower()
-        values = self._get_values(self.notifications_sheet_name, "A:J")
+        values = self._get_values(
+            self.notifications_sheet_name,
+            "A:J",
+        )
         if not values:
             return []
+
         headers = values[0]
         records: list[dict[str, str]] = []
+
         for sheet_row, row in enumerate(values[1:], start=2):
             if not any(str(value).strip() for value in row):
                 continue
+
             source = _row_to_dict(headers, row)
+
             if (
                 str(source.get("User Email", "")).strip().lower()
                 != normalized_email
             ):
                 continue
+
             normalized = {
                 header: source.get(header, "")
                 for header in NOTIFICATION_HEADERS
             }
             normalized["_sheet_row"] = str(sheet_row)
             records.append(normalized)
+
         return records
 
     def mark_notification_read(
         self, notification_id: str, user_email: str, read_at: str
     ) -> bool:
         normalized_email = str(user_email).strip().lower()
+
         with self._google_lock:
             target = next(
                 (
@@ -971,36 +985,55 @@ class GoogleSheetsRepository(TaskRepository):
                 ),
                 None,
             )
+
             if not target:
                 return False
+
             row_number = int(target["_sheet_row"])
+
             self._update_values(
-                f"'{self.notifications_sheet_name}'!I{row_number}:J{row_number}",
+                f"'{self.notifications_sheet_name}'!"
+                f"I{row_number}:J{row_number}",
                 [["Yes", read_at]],
             )
+
         return True
 
     def save_push_subscription(self, subscription: dict[str, str]) -> None:
         endpoint = str(subscription.get("Endpoint", "")).strip()
+
         if not endpoint:
-            raise RepositoryError("Push subscription endpoint is required.")
+            raise RepositoryError(
+                "Push subscription endpoint is required."
+            )
 
         with self._google_lock:
-            values = self._get_values(self.push_subscriptions_sheet_name, "A:J")
-            headers = values[0] if values else PUSH_SUBSCRIPTION_HEADERS
+            values = self._get_values(
+                self.push_subscriptions_sheet_name,
+                "A:J",
+            )
+            headers = (
+                values[0] if values else PUSH_SUBSCRIPTION_HEADERS
+            )
+
             target_row_number: int | None = None
             existing_created_at = ""
+
             for sheet_row, row in enumerate(values[1:], start=2):
                 source = _row_to_dict(headers, row)
+
                 if str(source.get("Endpoint", "")).strip() == endpoint:
                     target_row_number = sheet_row
-                    existing_created_at = str(source.get("Created At", "")).strip()
+                    existing_created_at = str(
+                        source.get("Created At", "")
+                    ).strip()
                     break
 
             normalized = {
                 header: str(subscription.get(header, ""))
                 for header in PUSH_SUBSCRIPTION_HEADERS
             }
+
             if existing_created_at:
                 normalized["Created At"] = existing_created_at
 
@@ -1008,28 +1041,46 @@ class GoogleSheetsRepository(TaskRepository):
                 self._append_values(
                     self.push_subscriptions_sheet_name,
                     PUSH_SUBSCRIPTION_HEADERS,
-                    _dict_to_row(PUSH_SUBSCRIPTION_HEADERS, normalized),
+                    _dict_to_row(
+                        PUSH_SUBSCRIPTION_HEADERS,
+                        normalized,
+                    ),
                 )
             else:
                 self._update_values(
-                    f"'{self.push_subscriptions_sheet_name}'!"
-                    f"A{target_row_number}:J{target_row_number}",
-                    [_dict_to_row(PUSH_SUBSCRIPTION_HEADERS, normalized)],
+                    (
+                        f"'{self.push_subscriptions_sheet_name}'!"
+                        f"A{target_row_number}:J{target_row_number}"
+                    ),
+                    [
+                        _dict_to_row(
+                            PUSH_SUBSCRIPTION_HEADERS,
+                            normalized,
+                        )
+                    ],
                 )
 
     def get_push_subscriptions(
         self, user_email: str
     ) -> list[dict[str, str]]:
         normalized_email = str(user_email).strip().lower()
-        values = self._get_values(self.push_subscriptions_sheet_name, "A:J")
+
+        values = self._get_values(
+            self.push_subscriptions_sheet_name,
+            "A:J",
+        )
         if not values:
             return []
+
         headers = values[0]
         records: list[dict[str, str]] = []
+
         for sheet_row, row in enumerate(values[1:], start=2):
             if not any(str(value).strip() for value in row):
                 continue
+
             source = _row_to_dict(headers, row)
+
             if (
                 str(source.get("User Email", "")).strip().lower()
                 != normalized_email
@@ -1037,12 +1088,14 @@ class GoogleSheetsRepository(TaskRepository):
                 in {"no", "false", "0", "inactive"}
             ):
                 continue
+
             normalized = {
                 header: source.get(header, "")
                 for header in PUSH_SUBSCRIPTION_HEADERS
             }
             normalized["_sheet_row"] = str(sheet_row)
             records.append(normalized)
+
         return records
 
     def deactivate_push_subscription(
@@ -1050,57 +1103,88 @@ class GoogleSheetsRepository(TaskRepository):
     ) -> bool:
         normalized_email = str(user_email).strip().lower()
         endpoint = str(endpoint).strip()
+
         with self._google_lock:
             target = next(
                 (
                     row
-                    for row in self.get_push_subscriptions(normalized_email)
+                    for row in self.get_push_subscriptions(
+                        normalized_email
+                    )
                     if row.get("Endpoint", "").strip() == endpoint
                 ),
                 None,
             )
+
             if not target:
                 return False
+
             row_number = int(target["_sheet_row"])
+
             # Last Seen At = I, Active = J.
             self._update_values(
-                f"'{self.push_subscriptions_sheet_name}'!I{row_number}:J{row_number}",
+                (
+                    f"'{self.push_subscriptions_sheet_name}'!"
+                    f"I{row_number}:J{row_number}"
+                ),
                 [[last_seen_at, "No"]],
             )
+
         return True
 
     def get_users(self) -> list[dict[str, str]]:
-        values = self._get_values(self.users_sheet_name, "A:D")
+        values = self._get_values(
+            self.users_sheet_name,
+            "A:D",
+        )
         if not values:
             return []
+
         headers = values[0]
         records: list[dict[str, str]] = []
+
         for row in values[1:]:
             if not any(str(value).strip() for value in row):
                 continue
+
             source = _row_to_dict(headers, row)
             records.append(
-                {header: source.get(header, "") for header in USER_HEADERS}
+                {
+                    header: source.get(header, "")
+                    for header in USER_HEADERS
+                }
             )
+
         return records
 
     def get_clients(self) -> list[dict[str, str]]:
-        values = self._get_values(self.clients_sheet_name, "A:F")
+        values = self._get_values(
+            self.clients_sheet_name,
+            "A:F",
+        )
         if not values:
             return []
+
         headers = values[0]
         records: list[dict[str, str]] = []
+
         for row in values[1:]:
             if not any(str(value).strip() for value in row):
                 continue
+
             source = _row_to_dict(headers, row)
             records.append(
-                {header: source.get(header, "") for header in CLIENT_HEADERS}
+                {
+                    header: source.get(header, "")
+                    for header in CLIENT_HEADERS
+                }
             )
+
         return records
 
     def add_client(self, client: dict[str, str]) -> None:
         client_code = str(client.get("Client Code", "")).strip()
+
         if not client_code:
             raise RepositoryError("Client Code is required.")
 
@@ -1112,6 +1196,7 @@ class GoogleSheetsRepository(TaskRepository):
                 == client_code.lower()
                 for row in self.get_clients()
             )
+
             if duplicate:
                 raise RepositoryError(
                     f"Client Code {client_code} already exists."
@@ -1124,29 +1209,41 @@ class GoogleSheetsRepository(TaskRepository):
             )
 
     def get_masters(self) -> dict[str, list[str]]:
-        values = self._get_values(self.masters_sheet_name, "A:E")
+        values = self._get_values(
+            self.masters_sheet_name,
+            "A:E",
+        )
         columns = {header: [] for header in MASTER_HEADERS}
+
         if values:
             headers = values[0]
+
             for row in values[1:]:
                 record = _row_to_dict(headers, row)
+
                 for header in MASTER_HEADERS:
                     value = record.get(header, "").strip()
+
                     if value and value not in columns[header]:
                         columns[header].append(value)
 
-        columns["Status"] = columns["Status"] or DEFAULT_STATUSES.copy()
+        columns["Status"] = (
+            columns["Status"] or DEFAULT_STATUSES.copy()
+        )
         columns["Priority"] = (
             columns["Priority"] or DEFAULT_PRIORITIES.copy()
         )
         columns["Task Categories"] = (
-            columns["Task Categories"] or DEFAULT_CATEGORIES.copy()
+            columns["Task Categories"]
+            or DEFAULT_CATEGORIES.copy()
         )
+
         return columns
 
 
 def build_repository(config: Any) -> TaskRepository:
     backend = str(config["DATA_BACKEND"]).lower()
+
     if backend == "google":
         repository: TaskRepository = GoogleSheetsRepository(
             spreadsheet_id=config["SHEET_ID"],
@@ -1157,12 +1254,16 @@ def build_repository(config: Any) -> TaskRepository:
             masters_sheet_name=config["MASTERS_SHEET_NAME"],
             clients_sheet_name=config["CLIENTS_SHEET_NAME"],
             notifications_sheet_name=config["NOTIFICATIONS_SHEET_NAME"],
-            push_subscriptions_sheet_name=config["PUSH_SUBSCRIPTIONS_SHEET_NAME"],
+            push_subscriptions_sheet_name=config[
+                "PUSH_SUBSCRIPTIONS_SHEET_NAME"
+            ],
             activity_spreadsheet_id=config["ACTIVITY_SHEET_ID"],
             activity_sheet_name=config["ACTIVITY_SHEET_NAME"],
         )
     elif backend == "local":
-        repository = LocalJsonRepository(config["LOCAL_DATA_DIR"])
+        repository = LocalJsonRepository(
+            config["LOCAL_DATA_DIR"]
+        )
     else:
         raise RepositoryError(
             "DATA_BACKEND must be either 'local' or 'google'."
@@ -1174,4 +1275,5 @@ def build_repository(config: Any) -> TaskRepository:
         raise
     except Exception as exc:
         raise RepositoryError(str(exc)) from exc
+
     return repository
