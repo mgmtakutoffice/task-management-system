@@ -51,6 +51,49 @@ class TaskRepository(ABC):
             None,
         )
 
+    def get_pending_approval_count(
+        self,
+        pending_status: str,
+        approval_pending_value: str,
+    ) -> int:
+        """Return the number of tasks awaiting completion approval.
+
+        This default implementation keeps local/test repositories compatible.
+        GoogleSheetsRepository overrides it with a narrow-column read.
+        """
+        pending_status_normalized = str(
+            pending_status or ""
+        ).strip().lower()
+
+        approval_pending_normalized = str(
+            approval_pending_value or ""
+        ).strip().lower()
+
+        deleted_values = {
+            "yes",
+            "true",
+            "1",
+            "deleted",
+        }
+
+        return sum(
+            1
+            for task in self.get_tasks()
+            if (
+                str(task.get("Status", "")).strip().lower()
+                == pending_status_normalized
+                and str(task.get("Deleted", "")).strip().lower()
+                not in deleted_values
+                and str(
+                    task.get(
+                        "Completion Approval Status",
+                        "",
+                    )
+                ).strip().lower()
+                in {"", approval_pending_normalized}
+            )
+        )
+
     @abstractmethod
     def add_task(self, task: dict[str, str]) -> None:
         raise NotImplementedError
@@ -817,6 +860,128 @@ class GoogleSheetsRepository(TaskRepository):
             normalized["_sheet_row"] = str(row_number)
 
             return normalized
+
+    def get_pending_approval_count(
+        self,
+        pending_status: str,
+        approval_pending_value: str,
+    ) -> int:
+        """Count completion approvals using only three task columns."""
+        pending_status_normalized = str(
+            pending_status or ""
+        ).strip().lower()
+
+        approval_pending_normalized = str(
+            approval_pending_value or ""
+        ).strip().lower()
+
+        status_column = self._column_letter(
+            TASK_HEADERS.index("Status") + 1
+        )
+        deleted_column = self._column_letter(
+            TASK_HEADERS.index("Deleted") + 1
+        )
+        approval_column = self._column_letter(
+            TASK_HEADERS.index("Completion Approval Status") + 1
+        )
+
+        ranges = [
+            (
+                f"'{self.tasks_sheet_name}'!"
+                f"{status_column}2:{status_column}"
+            ),
+            (
+                f"'{self.tasks_sheet_name}'!"
+                f"{deleted_column}2:{deleted_column}"
+            ),
+            (
+                f"'{self.tasks_sheet_name}'!"
+                f"{approval_column}2:{approval_column}"
+            ),
+        ]
+
+        with self._google_lock:
+            result = (
+                self.service.spreadsheets()
+                .values()
+                .batchGet(
+                    spreadsheetId=self.spreadsheet_id,
+                    ranges=ranges,
+                )
+                .execute(num_retries=3)
+            )
+
+        value_ranges = result.get("valueRanges", [])
+
+        status_rows = (
+            value_ranges[0].get("values", [])
+            if len(value_ranges) > 0
+            else []
+        )
+        deleted_rows = (
+            value_ranges[1].get("values", [])
+            if len(value_ranges) > 1
+            else []
+        )
+        approval_rows = (
+            value_ranges[2].get("values", [])
+            if len(value_ranges) > 2
+            else []
+        )
+
+        row_count = max(
+            len(status_rows),
+            len(deleted_rows),
+            len(approval_rows),
+            0,
+        )
+
+        deleted_values = {
+            "yes",
+            "true",
+            "1",
+            "deleted",
+        }
+
+        def cell_value(
+            rows: list[list[str]],
+            index: int,
+        ) -> str:
+            if index >= len(rows):
+                return ""
+
+            row = rows[index]
+
+            if not row:
+                return ""
+
+            return str(row[0]).strip().lower()
+
+        count = 0
+
+        for index in range(row_count):
+            status = cell_value(status_rows, index)
+            deleted = cell_value(deleted_rows, index)
+            approval_status = cell_value(
+                approval_rows,
+                index,
+            )
+
+            if status != pending_status_normalized:
+                continue
+
+            if deleted in deleted_values:
+                continue
+
+            if approval_status not in {
+                "",
+                approval_pending_normalized,
+            }:
+                continue
+
+            count += 1
+
+        return count
 
     def get_tasks(self) -> list[dict[str, str]]:
         # Read only the columns that belong to TASK_HEADERS. The generic
