@@ -3,6 +3,8 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import threading
+import time
 import uuid
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
@@ -28,8 +30,6 @@ from flask import (  # noqa: E402
     send_from_directory,
     session,
     url_for,
-    g,
-    has_request_context,
 )
 from werkzeug.security import check_password_hash  # noqa: E402
 
@@ -137,6 +137,46 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 app.config.get("STARTUP_ERROR", "Repository is unavailable.")
             )
         return current
+
+    notification_cache_lock = threading.RLock()
+    notification_cache: dict[
+        str,
+        tuple[float, list[dict[str, str]]],
+    ] = {}
+    NOTIFICATION_CACHE_TTL_SECONDS = 45.0
+
+    def invalidate_notification_cache(user_email: str) -> None:
+        normalized_email = str(user_email or "").strip().lower()
+        if not normalized_email:
+            return
+
+        with notification_cache_lock:
+            notification_cache.pop(normalized_email, None)
+
+    def cached_notifications(
+        user_email: str,
+    ) -> list[dict[str, str]]:
+        normalized_email = str(user_email or "").strip().lower()
+        if not normalized_email:
+            return []
+
+        now = time.monotonic()
+
+        # Keep the lock across a cache miss so two Gunicorn threads do not
+        # issue the same Google Sheets read at the same time.
+        with notification_cache_lock:
+            cached = notification_cache.get(normalized_email)
+            if cached is not None:
+                cached_at, rows = cached
+                if now - cached_at < NOTIFICATION_CACHE_TTL_SECONDS:
+                    return rows
+
+            rows = repo().get_notifications(normalized_email)
+            notification_cache[normalized_email] = (
+                time.monotonic(),
+                rows,
+            )
+            return rows
 
     def login_required(view: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(view)
@@ -547,6 +587,8 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 recipient,
             )
             return
+
+        invalidate_notification_cache(recipient)
 
         # The Notifications sheet remains the durable history. Browser push is
         # the immediate delivery channel and is intentionally best-effort.
@@ -1508,10 +1550,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
     def get_task(task_id: str) -> dict[str, str] | None:
         task = repo().get_task(task_id)
 
-        if not task:
-            return None
-
-        if is_deleted(task):
+        if not task or is_deleted(task):
             return None
 
         return task
@@ -1519,14 +1558,13 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
     @app.context_processor
     def inject_globals() -> dict[str, Any]:
         approval_count = 0
-        #if session.get("user_email") and is_task_editor():
-        #    approval_count = pending_approval_count()
         if (
             not app.config.get("STARTUP_ERROR")
             and session.get("user_email")
             and is_task_editor()
         ):
             approval_count = pending_approval_count()
+
         return {
             "current_user": current_user(),
             "is_task_editor": is_task_editor(),
@@ -2059,7 +2097,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
     @login_required
     def unread_notifications() -> Any:
         try:
-            notifications = repo().get_notifications(current_user_email())
+            notifications = cached_notifications(current_user_email())
         except Exception:
             app.logger.exception("Unable to load notifications")
             return jsonify({"count": 0, "notifications": []}), 503
@@ -2103,27 +2141,34 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
     )
     @login_required
     def mark_notification_read(notification_id: str) -> Any:
+        user_email = current_user_email()
+
         try:
             changed = repo().mark_notification_read(
                 notification_id,
-                current_user_email(),
+                user_email,
                 datetime.now(ACTIVITY_TIMEZONE).strftime(DATETIME_FORMAT),
             )
         except Exception:
             app.logger.exception("Unable to mark notification read")
             return jsonify({"ok": False}), 503
+
         if not changed:
             return jsonify({"ok": False}), 404
+
+        invalidate_notification_cache(user_email)
         return jsonify({"ok": True})
 
     @app.route("/notifications/<notification_id>/open")
     @login_required
     def open_notification(notification_id: str) -> Any:
+        user_email = current_user_email()
+
         try:
             notification = next(
                 (
                     row
-                    for row in repo().get_notifications(current_user_email())
+                    for row in cached_notifications(user_email)
                     if row.get("Notification ID") == notification_id
                 ),
                 None,
@@ -2131,11 +2176,13 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             if not notification:
                 flash("Notification was not found.", "warning")
                 return redirect(url_for("dashboard"))
+
             repo().mark_notification_read(
                 notification_id,
-                current_user_email(),
+                user_email,
                 datetime.now(ACTIVITY_TIMEZONE).strftime(DATETIME_FORMAT),
             )
+            invalidate_notification_cache(user_email)
         except Exception:
             app.logger.exception("Unable to open notification")
             flash("The notification could not be opened.", "warning")
