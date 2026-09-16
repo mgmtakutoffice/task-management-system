@@ -967,6 +967,16 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         due = parse_date(task.get("Due Date", ""))
         return bool(due and due < date.today() and not is_completed(task))
 
+    def pending_approval_count() -> int:
+        """Return nav approval count without loading every task column."""
+        return request_cached(
+            "pending_approval_count",
+            lambda: repo().get_pending_approval_count(
+                PENDING_APPROVAL_STATUS,
+                APPROVAL_PENDING,
+            ),
+        )
+
     def pending_approval_tasks() -> list[dict[str, Any]]:
         def load() -> list[dict[str, Any]]:
             pending = [
@@ -1510,7 +1520,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
     def inject_globals() -> dict[str, Any]:
         approval_count = 0
         if session.get("user_email") and is_task_editor():
-            approval_count = len(pending_approval_tasks())
+            approval_count = pending_approval_count()
         return {
             "current_user": current_user(),
             "is_task_editor": is_task_editor(),
