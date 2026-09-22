@@ -506,7 +506,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             key=lambda row: (
                 int(str(row.get("Stage", "0") or "0")),
                 int(str(row.get("Attempt", "0") or "0")),
-                str(row.get("Submitted At", "") or row.get("Assigned At", "")),
+                str(row.get("Assigned At", "")),
             )
         )
         return rows
@@ -531,7 +531,13 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
 
     def ensure_current_checker_record(task: dict[str, str]) -> dict[str, str]:
         current = current_checker_record(task)
-        if current and str(current.get("Status", "")).strip().lower() == "pending":
+        current_email = str(task.get("Checker Email", "")).strip().lower()
+        if (
+            current
+            and str(current.get("Status", "")).strip().lower() == "pending"
+            and str(current.get("Checker Email", "")).strip().lower()
+            == current_email
+        ):
             return current
 
         rows = checking_history(task.get("Task ID", ""))
@@ -547,47 +553,20 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             default=0,
         ) + 1
 
-        submitted_at = task.get("Submitted for Checking At", "")
-        created_at = submitted_at or datetime.now().strftime(DATETIME_FORMAT)
-        submitted_by = task.get("Submitted for Checking By", "")
-        submitted_by_email = ""
-        submitted_by_key = str(submitted_by).strip().lower()
-        for candidate in active_users():
-            if submitted_by_key in {
-                str(candidate.get("Name", "")).strip().lower(),
-                str(candidate.get("Email", "")).strip().lower(),
-            }:
-                submitted_by_email = str(candidate.get("Email", "")).strip().lower()
-                break
-        if not submitted_by_email and (
-            submitted_by_key
-            == str(task.get("Assigned To", "")).strip().lower()
-        ):
-            submitted_by_email = str(
-                task.get("Assigned To Email", "")
-            ).strip().lower()
-
         record = {
-            "Checking Record ID": uuid.uuid4().hex,
+            "Checker Record ID": uuid.uuid4().hex,
             "Task ID": task.get("Task ID", ""),
             "Stage": str(stage),
             "Attempt": str(attempt),
             "Checker Name": task.get("Checker Name", ""),
             "Checker Email": task.get("Checker Email", ""),
             "Status": "Pending",
-            "Assigned By": submitted_by,
-            "Assigned By Email": submitted_by_email,
-            "Assigned At": submitted_at,
-            "Submitted At": submitted_at,
-            "Decision By": "",
-            "Decision By Email": "",
-            "Decision At": "",
+            "Assigned By": task.get("Submitted for Checking By", ""),
+            "Assigned At": task.get("Submitted for Checking At", ""),
+            "Completed By": "",
+            "Completed At": "",
             "Comment": "",
-            "Next Checker Name": "",
-            "Next Checker Email": "",
             "Active": "Yes",
-            "Created At": created_at,
-            "Updated At": created_at,
         }
         repo().add_task_checker(record)
         return record
@@ -630,37 +609,21 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                     default=0,
                 ) + 1
 
-        actor = current_user()
-        submitted_at = (
-            updated.get("Submitted for Checking At", "")
-            or datetime.now().strftime(DATETIME_FORMAT)
-        )
         repo().add_task_checker(
             {
-                "Checking Record ID": uuid.uuid4().hex,
+                "Checker Record ID": uuid.uuid4().hex,
                 "Task ID": updated.get("Task ID", ""),
                 "Stage": str(stage),
                 "Attempt": str(attempt),
                 "Checker Name": updated.get("Checker Name", ""),
                 "Checker Email": updated.get("Checker Email", ""),
                 "Status": "Pending",
-                "Assigned By": (
-                    updated.get("Submitted for Checking By", "")
-                    or actor.get("name", "")
-                    or actor.get("email", "")
-                ),
-                "Assigned By Email": actor.get("email", ""),
-                "Assigned At": submitted_at,
-                "Submitted At": submitted_at,
-                "Decision By": "",
-                "Decision By Email": "",
-                "Decision At": "",
+                "Assigned By": updated.get("Submitted for Checking By", ""),
+                "Assigned At": updated.get("Submitted for Checking At", ""),
+                "Completed By": "",
+                "Completed At": "",
                 "Comment": "",
-                "Next Checker Name": "",
-                "Next Checker Email": "",
                 "Active": "Yes",
-                "Created At": submitted_at,
-                "Updated At": submitted_at,
             }
         )
 
@@ -675,6 +638,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             str(row.get("Checker Email", "")).strip().lower()
             for row in checking_history(task.get("Task ID", ""))
             if str(row.get("Checker Email", "")).strip()
+            and str(row.get("Status", "")).strip().lower() != "cancelled"
         }
         return [
             user
@@ -2726,6 +2690,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             used_checker_emails = {
                 str(row.get("Checker Email", "")).strip().lower()
                 for row in checking_history(task_id)
+                if str(row.get("Status", "")).strip().lower() != "cancelled"
             }
             if next_checker_email in used_checker_emails:
                 flash("A checker already used in this checking sequence cannot be selected again.", "danger")
@@ -2742,25 +2707,12 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         completed_record.update(
             {
                 "Status": "Accepted",
-                "Decision By": user["name"] or user["email"],
-                "Decision By Email": user["email"],
-                "Decision At": now,
+                "Completed By": user["name"] or user["email"],
+                "Completed At": now,
                 "Comment": comment,
-                "Next Checker Name": (
-                    next_checker_name if action == "assign_next" else ""
-                ),
-                "Next Checker Email": (
-                    next_checker_email if action == "assign_next" else ""
-                ),
                 "Active": "No",
-                "Updated At": now,
             }
         )
-        repo().update_task_checker(
-            completed_record["Checking Record ID"],
-            completed_record,
-        )
-
         updated = {header: task.get(header, "") for header in TASK_HEADERS}
         updated.update(
             {
@@ -2784,6 +2736,14 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
 
         if action == "assign_next":
             next_stage = current_stage + 1
+            next_attempt = max(
+                (
+                    _record_number(row, "Attempt", 0)
+                    for row in checking_history(task_id)
+                    if _record_number(row, "Stage", 0) == next_stage
+                ),
+                default=0,
+            ) + 1
             updated.update(
                 {
                     "Status": PENDING_CHECKING_STATUS,
@@ -2798,31 +2758,200 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                     "Changes Required Comment": "",
                 }
             )
-            repo().update_task(task_id, updated)
-            repo().add_task_checker(
-                {
-                    "Checking Record ID": uuid.uuid4().hex,
-                    "Task ID": task_id,
-                    "Stage": str(next_stage),
-                    "Attempt": "1",
-                    "Checker Name": next_checker_name,
-                    "Checker Email": next_checker_email,
-                    "Status": "Pending",
-                    "Assigned By": user["name"] or user["email"],
-                    "Assigned By Email": user["email"],
-                    "Assigned At": now,
-                    "Submitted At": now,
-                    "Decision By": "",
-                    "Decision By Email": "",
-                    "Decision At": "",
-                    "Comment": "",
-                    "Next Checker Name": "",
-                    "Next Checker Email": "",
-                    "Active": "Yes",
-                    "Created At": now,
-                    "Updated At": now,
-                }
-            )
+
+            # A sequential handoff touches both the Tasks row and the Task
+            # Checkers history. Keep Checker 1/2 pending until the next checker
+            # assignment has been created and verified. If any core write fails,
+            # restore the previous task/checker state and deactivate a partially
+            # created next-checker row.
+            original_task_record = {
+                header: task.get(header, "") for header in TASK_HEADERS
+            }
+            original_checker_record = {
+                header: current_record.get(header, "")
+                for header in TASK_CHECKER_HEADERS
+            }
+            next_checker_record_id = uuid.uuid4().hex
+            next_checker_record = {
+                "Checker Record ID": next_checker_record_id,
+                "Task ID": task_id,
+                "Stage": str(next_stage),
+                "Attempt": str(next_attempt),
+                "Checker Name": next_checker_name,
+                "Checker Email": next_checker_email,
+                "Status": "Pending",
+                "Assigned By": user["name"] or user["email"],
+                "Assigned At": now,
+                "Completed By": "",
+                "Completed At": "",
+                "Comment": "",
+                "Active": "Yes",
+            }
+
+            try:
+                # Create the Stage 2/3 record before exposing the new checker on
+                # the main Tasks row. This prevents the new checker from opening
+                # a task whose checker-history row does not yet exist.
+                repo().add_task_checker(next_checker_record)
+
+                persisted_rows = repo().get_task_checkers(task_id)
+                persisted_next = next(
+                    (
+                        row
+                        for row in persisted_rows
+                        if str(row.get("Checker Record ID", "")).strip()
+                        == next_checker_record_id
+                    ),
+                    None,
+                )
+                if not persisted_next or not (
+                    str(persisted_next.get("Checker Email", "")).strip().lower()
+                    == next_checker_email
+                    and _record_number(persisted_next, "Stage", 0) == next_stage
+                    and _record_number(persisted_next, "Attempt", 0) == next_attempt
+                    and str(persisted_next.get("Status", "")).strip().lower()
+                    == "pending"
+                    and str(persisted_next.get("Active", "")).strip().lower()
+                    == "yes"
+                ):
+                    raise RepositoryError(
+                        "The next checker record could not be verified after saving."
+                    )
+
+                repo().update_task(task_id, updated)
+
+                persisted_task = next(
+                    (
+                        row
+                        for row in repo().get_tasks()
+                        if str(row.get("Task ID", "")).strip() == task_id
+                    ),
+                    None,
+                )
+                if not persisted_task or not (
+                    str(persisted_task.get("Status", "")).strip().lower()
+                    == PENDING_CHECKING_STATUS.lower()
+                    and str(persisted_task.get("Checker Email", "")).strip().lower()
+                    == next_checker_email
+                    and str(persisted_task.get("Checking Status", "")).strip().lower()
+                    == CHECKING_PENDING.lower()
+                ):
+                    raise RepositoryError(
+                        "The main task could not be verified for the next checker."
+                    )
+
+                # Complete the current checker only after the next checker has
+                # both a verified history row and the main task assignment.
+                repo().update_task_checker(
+                    completed_record["Checker Record ID"],
+                    completed_record,
+                )
+
+                persisted_rows = repo().get_task_checkers(task_id)
+                persisted_current = next(
+                    (
+                        row
+                        for row in persisted_rows
+                        if str(row.get("Checker Record ID", "")).strip()
+                        == completed_record["Checker Record ID"]
+                    ),
+                    None,
+                )
+                if not persisted_current or not (
+                    str(persisted_current.get("Status", "")).strip().lower()
+                    == "accepted"
+                    and str(persisted_current.get("Active", "")).strip().lower()
+                    == "no"
+                ):
+                    raise RepositoryError(
+                        "The current checker completion could not be verified."
+                    )
+
+            except Exception:
+                app.logger.exception(
+                    "Sequential checking handoff failed for task %s, stage %s to %s",
+                    task_id,
+                    current_stage,
+                    next_stage,
+                )
+                rollback_errors: list[str] = []
+
+                try:
+                    repo().update_task(task_id, original_task_record)
+                except Exception:
+                    rollback_errors.append("main task")
+                    app.logger.exception(
+                        "Unable to restore main task %s after handoff failure",
+                        task_id,
+                    )
+
+                try:
+                    repo().update_task_checker(
+                        original_checker_record["Checker Record ID"],
+                        original_checker_record,
+                    )
+                except Exception:
+                    rollback_errors.append("current checker")
+                    app.logger.exception(
+                        "Unable to restore current checker record for task %s",
+                        task_id,
+                    )
+
+                try:
+                    rollback_rows = repo().get_task_checkers(task_id)
+                    partial_next = next(
+                        (
+                            row
+                            for row in rollback_rows
+                            if str(row.get("Checker Record ID", "")).strip()
+                            == next_checker_record_id
+                        ),
+                        None,
+                    )
+                    if partial_next:
+                        cancelled_next = {
+                            header: partial_next.get(header, "")
+                            for header in TASK_CHECKER_HEADERS
+                        }
+                        cancelled_next.update(
+                            {
+                                "Status": "Cancelled",
+                                "Completed By": user["name"] or user["email"],
+                                "Completed At": now,
+                                "Comment": (
+                                    "Automatic rollback: the next-checker handoff "
+                                    "did not complete."
+                                ),
+                                "Active": "No",
+                            }
+                        )
+                        repo().update_task_checker(
+                            next_checker_record_id,
+                            cancelled_next,
+                        )
+                except Exception:
+                    rollback_errors.append("next checker")
+                    app.logger.exception(
+                        "Unable to deactivate partial next-checker record for task %s",
+                        task_id,
+                    )
+
+                if rollback_errors:
+                    flash(
+                        "The next-checker handoff could not be completed, and "
+                        "automatic rollback was incomplete. Please inform the "
+                        "administrator before taking further action on this task.",
+                        "danger",
+                    )
+                    return redirect(url_for(ongoing_return_endpoint()))
+
+                flash(
+                    "The next-checker handoff could not be completed. The current "
+                    "checking assignment has been restored; please try again.",
+                    "danger",
+                )
+                return redirect(url_for("review_checking", task_id=task_id))
+
             save_task_activities(
                 [
                     task_activity(
@@ -2865,6 +2994,10 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 "success",
             )
         else:
+            repo().update_task_checker(
+                completed_record["Checker Record ID"],
+                completed_record,
+            )
             updated["Status"] = "In Progress"
             repo().update_task(task_id, updated)
             save_task_activities(
@@ -2948,18 +3081,14 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         returned_record.update(
             {
                 "Status": "Changes Required",
-                "Decision By": user["name"] or user["email"],
-                "Decision By Email": user["email"],
-                "Decision At": now,
+                "Completed By": user["name"] or user["email"],
+                "Completed At": now,
                 "Comment": reason,
-                "Next Checker Name": "",
-                "Next Checker Email": "",
                 "Active": "No",
-                "Updated At": now,
             }
         )
         repo().update_task_checker(
-            returned_record["Checking Record ID"],
+            returned_record["Checker Record ID"],
             returned_record,
         )
 
