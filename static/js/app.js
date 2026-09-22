@@ -34,163 +34,6 @@ if (statusSelect && checkerWrap && checkerSelect) {
   updateChecker();
 }
 
-// Searchable Client selector on Add Task and authorised-user Update Task forms.
-// The original <select name="client_code"> remains the value submitted to Flask.
-const clientSelect = document.querySelector('[data-client-search]');
-
-if (clientSelect && !clientSelect.disabled) {
-  const originalOptions = Array.from(clientSelect.options)
-    .filter((option) => option.value)
-    .map((option) => ({
-      value: option.value,
-      text: option.textContent.replace(/\s+/g, ' ').trim(),
-    }));
-
-  const wrapper = document.createElement('div');
-  wrapper.className = 'client-search';
-
-  const input = document.createElement('input');
-  input.type = 'search';
-  input.className = 'client-search-input';
-  input.placeholder = 'Type client code or name...';
-  input.autocomplete = 'off';
-  input.setAttribute('aria-label', 'Search client');
-  input.setAttribute('aria-autocomplete', 'list');
-  input.setAttribute('aria-expanded', 'false');
-
-  const results = document.createElement('div');
-  results.className = 'client-search-results';
-  results.setAttribute('role', 'listbox');
-  results.hidden = true;
-
-  clientSelect.parentNode.insertBefore(wrapper, clientSelect);
-  wrapper.appendChild(input);
-  wrapper.appendChild(results);
-  wrapper.appendChild(clientSelect);
-
-  // Keep the real select for form submission, but use the visible search box
-  // for required-field validation once JavaScript enhancement is active.
-  clientSelect.classList.add('client-search-native');
-  clientSelect.required = false;
-  input.required = true;
-
-  const selectedOption = clientSelect.options[clientSelect.selectedIndex];
-  if (selectedOption && selectedOption.value) {
-    input.value = selectedOption.textContent.replace(/\s+/g, ' ').trim();
-  }
-
-  const closeResults = () => {
-    results.hidden = true;
-    input.setAttribute('aria-expanded', 'false');
-  };
-
-  const chooseClient = (value, text) => {
-    clientSelect.value = value;
-    input.value = text;
-    input.setCustomValidity('');
-    closeResults();
-    clientSelect.dispatchEvent(new Event('change', { bubbles: true }));
-  };
-
-  const renderResults = (searchText = '') => {
-    const term = searchText.trim().toLowerCase();
-    const matches = originalOptions.filter((option) =>
-      option.text.toLowerCase().includes(term),
-    );
-
-    results.innerHTML = '';
-
-    if (!matches.length) {
-      const empty = document.createElement('div');
-      empty.className = 'client-search-empty';
-      empty.textContent = 'No matching client found';
-      results.appendChild(empty);
-    } else {
-      matches.forEach((option) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'client-search-option';
-        button.setAttribute('role', 'option');
-        button.textContent = option.text;
-        button.addEventListener('click', () => {
-          chooseClient(option.value, option.text);
-        });
-        results.appendChild(button);
-      });
-    }
-
-    results.hidden = false;
-    input.setAttribute('aria-expanded', 'true');
-  };
-
-  input.addEventListener('focus', () => {
-    renderResults(input.value);
-  });
-
-  input.addEventListener('input', () => {
-    // Once the displayed text changes, require a fresh selection from the
-    // matching list so a free-typed client name cannot be submitted.
-    clientSelect.value = '';
-    input.setCustomValidity('');
-    renderResults(input.value);
-  });
-
-  input.addEventListener('keydown', (event) => {
-    const options = Array.from(results.querySelectorAll('.client-search-option'));
-
-    if (event.key === 'ArrowDown' && options.length) {
-      event.preventDefault();
-      options[0].focus();
-    } else if (event.key === 'Enter' && options.length && !results.hidden) {
-      event.preventDefault();
-      options[0].click();
-      input.focus();
-    } else if (event.key === 'Escape') {
-      closeResults();
-    }
-  });
-
-  results.addEventListener('keydown', (event) => {
-    const options = Array.from(results.querySelectorAll('.client-search-option'));
-    const currentIndex = options.indexOf(document.activeElement);
-
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      const nextIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0;
-      options[nextIndex]?.focus();
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      if (currentIndex <= 0) {
-        input.focus();
-      } else {
-        options[currentIndex - 1]?.focus();
-      }
-    } else if (event.key === 'Escape') {
-      closeResults();
-      input.focus();
-    }
-  });
-
-  document.addEventListener('click', (event) => {
-    if (!wrapper.contains(event.target)) closeResults();
-  });
-
-  const taskForm = clientSelect.closest('form');
-  if (taskForm) {
-    taskForm.addEventListener('submit', (event) => {
-      if (!clientSelect.value) {
-        event.preventDefault();
-        event.stopPropagation();
-        input.setCustomValidity('Please select a client from the search results.');
-        input.reportValidity();
-        input.focus();
-      } else {
-        input.setCustomValidity('');
-      }
-    });
-  }
-}
-
 setTimeout(() => {
   document.querySelectorAll('.flash').forEach((element) => element.classList.add('fade-out'));
 }, 5000);
@@ -206,6 +49,29 @@ document.addEventListener('submit', (event) => {
   }
 
   form.dataset.submitting = 'true';
+
+  // Preserve the clicked submit button's name/value before disabling it.
+  // Disabled submit controls are not included in the form POST, which matters
+  // for forms where the submit button itself selects the server-side action
+  // (for example checking_action=complete / assign_next).
+  const submitter = event.submitter;
+  if (
+    (submitter instanceof HTMLButtonElement
+      || submitter instanceof HTMLInputElement)
+    && submitter.name
+  ) {
+    let preservedSubmitter = form.querySelector(
+      'input[type="hidden"][data-preserved-submitter="true"]',
+    );
+    if (!(preservedSubmitter instanceof HTMLInputElement)) {
+      preservedSubmitter = document.createElement('input');
+      preservedSubmitter.type = 'hidden';
+      preservedSubmitter.dataset.preservedSubmitter = 'true';
+      form.appendChild(preservedSubmitter);
+    }
+    preservedSubmitter.name = submitter.name;
+    preservedSubmitter.value = submitter.value;
+  }
 
   form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach((button) => {
     button.disabled = true;
@@ -253,8 +119,7 @@ document.addEventListener('click', (event) => {
   lastNavigationAt = now;
 });
 
-// Task notifications: browser Web Push first, in-app bell/history always,
-// and a slower polling fallback when Web Push is unavailable or disabled.
+// In-app task notifications: bell, unread count, toasts, sound and 30-second polling.
 const notificationRoot = document.querySelector('[data-notification-root]');
 
 if (notificationRoot) {
@@ -264,32 +129,12 @@ if (notificationRoot) {
   const notificationPanelCount = notificationRoot.querySelector('[data-notification-panel-count]');
   const notificationList = notificationRoot.querySelector('[data-notification-list]');
   const notificationToasts = document.querySelector('[data-notification-toasts]');
-  const pushControls = notificationRoot.querySelector('[data-push-controls]');
-  const pushEnableButton = notificationRoot.querySelector('[data-push-enable]');
-  const pushStatus = notificationRoot.querySelector('[data-push-status]');
-  const logoutLink = document.querySelector('[data-logout-link]');
-
   const notificationUser = notificationRoot.dataset.notificationUser || 'user';
-  const pushConfigured = notificationRoot.dataset.pushConfigured === 'true';
-  const vapidPublicKey = notificationRoot.dataset.vapidPublicKey || '';
   const shownStorageKey = `task-manager-shown-notifications:${notificationUser}`;
-  const pushSyncStorageKey = `task-manager-push-sync:${notificationUser}`;
-  const PUSH_SYNC_TTL_MS = 12 * 60 * 60 * 1000;
 
   let notificationFetchInFlight = false;
   let audioContext = null;
   let soundUnlocked = false;
-  let pushActive = false;
-  let notificationPollTimer = null;
-
-  const pushSupported = Boolean(
-    pushConfigured
-    && vapidPublicKey
-    && window.isSecureContext
-    && 'serviceWorker' in navigator
-    && 'PushManager' in window
-    && 'Notification' in window,
-  );
 
   const loadShownNotificationIds = () => {
     try {
@@ -344,7 +189,7 @@ if (notificationRoot) {
       oscillator.start();
       oscillator.stop(audioContext.currentTime + 0.2);
     } catch (error) {
-      // Sound is only a fallback when browser push is not enabled.
+      // Sound is optional; the visual notification remains available.
     }
   };
 
@@ -480,7 +325,7 @@ if (notificationRoot) {
     }, 9000);
   };
 
-  const fetchNotifications = async ({ showToasts = !pushActive } = {}) => {
+  const fetchNotifications = async ({ showToasts = true } = {}) => {
     if (notificationFetchInFlight) return;
     notificationFetchInFlight = true;
     try {
@@ -498,9 +343,7 @@ if (notificationRoot) {
       setUnreadCount(payload.count || 0);
       renderNotificationList(notifications);
 
-      // Do not duplicate an OS/browser push with an in-app toast. Toast + sound
-      // remain as a fallback when browser push is unavailable or not enabled.
-      if (showToasts && !pushActive) {
+      if (showToasts) {
         const unseen = notifications.filter(
           (notification) => notification.id && !shownNotificationIds.has(notification.id),
         );
@@ -510,168 +353,15 @@ if (notificationRoot) {
           showNotificationToast(notification);
         });
 
+        // One short tone per polling cycle, even when several notifications arrive.
         if (unseen.length) playNotificationSound();
       }
     } catch (error) {
-      // The next fallback cycle or service-worker push message will retry.
+      // Polling failures are intentionally silent; the next 30-second cycle retries.
     } finally {
       notificationFetchInFlight = false;
     }
   };
-
-  const urlBase64ToUint8Array = (base64String) => {
-    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    return Uint8Array.from([...rawData].map((character) => character.charCodeAt(0)));
-  };
-
-  const setPushStatus = (message, { showButton = false } = {}) => {
-    if (pushControls) pushControls.hidden = false;
-    if (pushStatus) pushStatus.textContent = message || '';
-    if (pushEnableButton) pushEnableButton.hidden = !showButton;
-  };
-
-  const savePushSubscription = async (
-    subscription,
-    { force = false } = {},
-  ) => {
-    const subscriptionJson = subscription.toJSON();
-    const endpoint = subscriptionJson.endpoint || '';
-
-    if (!endpoint) {
-      throw new Error('Push subscription endpoint is unavailable.');
-    }
-
-    if (!force) {
-      try {
-        const stored = JSON.parse(
-          localStorage.getItem(pushSyncStorageKey) || '{}',
-        );
-        const sameEndpoint = stored.endpoint === endpoint;
-        const syncedAt = Number(stored.syncedAt);
-        const recentlySynced = (
-          Number.isFinite(syncedAt)
-          && Date.now() - syncedAt < PUSH_SYNC_TTL_MS
-        );
-
-        if (sameEndpoint && recentlySynced) return;
-      } catch (error) {
-        // Continue with server synchronization.
-      }
-    }
-
-    const response = await fetch('/api/push/subscribe', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-      body: JSON.stringify({ subscription: subscriptionJson }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Unable to save browser push subscription.');
-    }
-
-    try {
-      localStorage.setItem(
-        pushSyncStorageKey,
-        JSON.stringify({
-          endpoint,
-          syncedAt: Date.now(),
-        }),
-      );
-    } catch (error) {
-      // localStorage may be unavailable.
-    }
-  };
-
-  const initializeBrowserPush = async ({ requestPermission = false } = {}) => {
-    pushActive = false;
-
-    if (!pushConfigured) {
-      if (pushControls) pushControls.hidden = true;
-      return false;
-    }
-
-    if (!window.isSecureContext) {
-      setPushStatus('Browser push requires HTTPS or localhost.');
-      return false;
-    }
-
-    if (!pushSupported) {
-      setPushStatus('Browser push is not supported in this browser.');
-      return false;
-    }
-
-    try {
-      await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
-      const registration = await navigator.serviceWorker.ready;
-
-      let permission = Notification.permission;
-      if (permission === 'default' && requestPermission) {
-        permission = await Notification.requestPermission();
-      }
-
-      if (permission === 'default') {
-        setPushStatus('Enable browser notifications for immediate task alerts.', {
-          showButton: true,
-        });
-        return false;
-      }
-
-      if (permission !== 'granted') {
-        setPushStatus('Browser notifications are blocked in browser settings.');
-        return false;
-      }
-
-      let subscription = await registration.pushManager.getSubscription();
-      let createdSubscription = false;
-
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        });
-        createdSubscription = true;
-      }
-
-      await savePushSubscription(
-        subscription,
-        {
-          force: requestPermission || createdSubscription,
-        },
-      );
-      pushActive = true;
-      setPushStatus('Browser notifications enabled.');
-      return true;
-    } catch (error) {
-      setPushStatus('Browser notifications could not be enabled.');
-      return false;
-    }
-  };
-
-  if (pushEnableButton) {
-    pushEnableButton.addEventListener('click', async () => {
-      pushEnableButton.disabled = true;
-      try {
-        await initializeBrowserPush({ requestPermission: true });
-        await fetchNotifications({ showToasts: false });
-      } finally {
-        pushEnableButton.disabled = false;
-      }
-    });
-  }
-
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data?.type === 'TASK_NOTIFICATION_RECEIVED') {
-        fetchNotifications({ showToasts: false });
-      }
-    });
-  }
 
   if (notificationBell && notificationPanel) {
     notificationBell.addEventListener('click', (event) => {
@@ -699,70 +389,13 @@ if (notificationRoot) {
     });
   }
 
-  const scheduleNotificationPoll = () => {
-    if (notificationPollTimer) window.clearTimeout(notificationPollTimer);
-    const intervalMs = pushActive ? 300000 : 60000; // 5 min with push; 1 min fallback.
-    notificationPollTimer = window.setTimeout(async () => {
-      if (document.visibilityState === 'visible') {
-        await fetchNotifications({ showToasts: !pushActive });
-      }
-      scheduleNotificationPoll();
-    }, intervalMs);
-  };
+  // Fetch immediately after login/page navigation, then every 30 seconds.
+  fetchNotifications();
+  window.setInterval(() => {
+    if (document.visibilityState === 'visible') fetchNotifications();
+  }, 30000);
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      fetchNotifications({ showToasts: false });
-    }
+    if (document.visibilityState === 'visible') fetchNotifications();
   });
-
-  // On shared office computers, remove the browser's push endpoint from the
-  // current login on Sign out. Notification permission stays granted, so the
-  // next user can be auto-subscribed to their own account after login.
-  if (logoutLink && 'serviceWorker' in navigator) {
-    logoutLink.addEventListener('click', async (event) => {
-      event.preventDefault();
-      const destination = logoutLink.href;
-      const forceNavigate = window.setTimeout(() => {
-        window.location.href = destination;
-      }, 1600);
-
-      try {
-        const registration = await navigator.serviceWorker.getRegistration('/');
-        const subscription = registration
-          ? await registration.pushManager.getSubscription()
-          : null;
-
-        if (subscription) {
-          await fetch('/api/push/unsubscribe', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Requested-With': 'XMLHttpRequest',
-            },
-            body: JSON.stringify({ endpoint: subscription.endpoint }),
-          });
-          await subscription.unsubscribe();
-        }
-      } catch (error) {
-        // Sign-out must continue even if push cleanup fails.
-      } finally {
-        try {
-          localStorage.removeItem(pushSyncStorageKey);
-        } catch (error) {
-          // Ignore storage errors during logout.
-        }
-
-        window.clearTimeout(forceNavigate);
-        window.location.href = destination;
-      }
-    });
-  }
-
-  (async () => {
-    await initializeBrowserPush();
-    await fetchNotifications({ showToasts: !pushActive });
-    scheduleNotificationPoll();
-  })();
 }
