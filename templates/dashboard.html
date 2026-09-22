@@ -59,7 +59,7 @@
   <div class="panel-header">
     <div>
       <h2>Associate workload</h2>
-      <p>Current assigned work, checking responsibility, overdue work and monthly completion.</p>
+      <p>Current assigned work, checking responsibility, due-today work, overdue work and monthly completion.</p>
     </div>
   </div>
 
@@ -88,11 +88,15 @@
           <strong>{{ row.checking }}</strong>
           <span>For checking</span>
         </a>
+        <a href="{{ url_for('ongoing_tasks', assigned_to=row.name, due_today='1') }}" class="workload-stat">
+          <strong>{{ row.due_today }}</strong>
+          <span>Due today</span>
+        </a>
         <a href="{{ url_for('ongoing_tasks', assigned_to=row.name, overdue='1') }}" class="workload-stat">
           <strong>{{ row.overdue }}</strong>
           <span>Overdue tasks</span>
         </a>
-        <a href="{{ url_for('completed_tasks', assigned_to=row.name, completed_month=current_month) }}" class="workload-stat">
+        <a href="{{ url_for('completed_tasks', assigned_to=row.name, completed_month=current_month) }}" class="workload-stat workload-stat-full">
           <strong>{{ row.completed_month }}</strong>
           <span>Completed this month</span>
         </a>
