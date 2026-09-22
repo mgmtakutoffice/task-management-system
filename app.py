@@ -2661,14 +2661,79 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             return redirect(url_for(ongoing_return_endpoint()))
 
         comment = request.form.get("checking_comment", "").strip()
-        action = request.form.get("checking_action", "complete").strip().lower()
+        action = request.form.get("checking_action", "").strip().lower()
         next_checker_email = request.form.get("next_checker_email", "").strip().lower()
 
         if not comment:
             flash("Please enter a checking comment.", "danger")
             return redirect(url_for("review_checking", task_id=task_id))
 
+        # Stage 5 requires the checker-history schema introduced with sequential
+        # checking. Do not continue with an older/mismatched config.py.
+        required_checker_headers = (
+            "Checker Record ID",
+            "Task ID",
+            "Stage",
+            "Attempt",
+            "Checker Name",
+            "Checker Email",
+            "Status",
+            "Assigned By",
+            "Assigned At",
+            "Completed By",
+            "Completed At",
+            "Comment",
+            "Active",
+        )
+        missing_checker_headers = [
+            header for header in required_checker_headers
+            if header not in TASK_CHECKER_HEADERS
+        ]
+        if missing_checker_headers:
+            app.logger.error(
+                "Stage 5 config mismatch. TASK_CHECKER_HEADERS is missing: %s",
+                ", ".join(missing_checker_headers),
+            )
+            flash(
+                "Stage 5 checker configuration is incomplete on the server. "
+                "Please deploy the matching Stage 5 config.py and repository.py.",
+                "danger",
+            )
+            return redirect(url_for("review_checking", task_id=task_id))
+
+        # Never silently fall back to 'complete' when the submit button value is
+        # absent. This keeps Checker 1 -> Checker 2/3 handoffs deterministic.
+        if action not in {"complete", "assign_next"}:
+            app.logger.warning(
+                "Checking action missing/invalid for task %s: %r; next checker=%r",
+                task_id,
+                action,
+                next_checker_email,
+            )
+            flash(
+                "Please use either 'Accept & Complete Checking' or "
+                "'Accept & Assign Next Checker'.",
+                "warning",
+            )
+            return redirect(url_for("review_checking", task_id=task_id))
+
         current_record = ensure_current_checker_record(task)
+        current_record_id = str(
+            current_record.get("Checker Record ID", "")
+        ).strip()
+        if not current_record_id:
+            app.logger.error(
+                "Checker history row for task %s has no Checker Record ID: %r",
+                task_id,
+                current_record,
+            )
+            flash(
+                "The current checking-history row is missing its record ID. "
+                "Please check the Task Checkers sheet and Stage 5 config before retrying.",
+                "danger",
+            )
+            return redirect(url_for("review_checking", task_id=task_id))
+
         current_stage = _record_number(current_record, "Stage", 1) or 1
 
         next_checker_name = ""
@@ -2704,6 +2769,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             header: current_record.get(header, "")
             for header in TASK_CHECKER_HEADERS
         }
+        completed_record["Checker Record ID"] = current_record_id
         completed_record.update(
             {
                 "Status": "Accepted",
@@ -2843,7 +2909,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 # Complete the current checker only after the next checker has
                 # both a verified history row and the main task assignment.
                 repo().update_task_checker(
-                    completed_record["Checker Record ID"],
+                    current_record_id,
                     completed_record,
                 )
 
@@ -2853,7 +2919,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                         row
                         for row in persisted_rows
                         if str(row.get("Checker Record ID", "")).strip()
-                        == completed_record["Checker Record ID"]
+                        == current_record_id
                     ),
                     None,
                 )
@@ -2887,7 +2953,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
 
                 try:
                     repo().update_task_checker(
-                        original_checker_record["Checker Record ID"],
+                        current_record_id,
                         original_checker_record,
                     )
                 except Exception:
@@ -2995,7 +3061,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             )
         else:
             repo().update_task_checker(
-                completed_record["Checker Record ID"],
+                current_record_id,
                 completed_record,
             )
             updated["Status"] = "In Progress"

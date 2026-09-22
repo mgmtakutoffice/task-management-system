@@ -75,7 +75,7 @@ TASK_HEADERS = [
 
 # Sequential checking history. One row represents one checker attempt.
 TASK_CHECKER_HEADERS = [
-    "Checking Record ID",
+    "Checker Record ID",
     "Task ID",
     "Stage",
     "Attempt",
@@ -83,18 +83,11 @@ TASK_CHECKER_HEADERS = [
     "Checker Email",
     "Status",
     "Assigned By",
-    "Assigned By Email",
     "Assigned At",
-    "Submitted At",
-    "Decision By",
-    "Decision By Email",
-    "Decision At",
+    "Completed By",
+    "Completed At",
     "Comment",
-    "Next Checker Name",
-    "Next Checker Email",
     "Active",
-    "Created At",
-    "Updated At",
 ]
 
 # Append-only backend audit log. This is intentionally kept separate from

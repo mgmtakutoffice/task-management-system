@@ -128,7 +128,7 @@ class TaskRepository(ABC):
     def update_task_checker(
         self, record_id: str, record: dict[str, str]
     ) -> None:
-        """Update one checker attempt by Checking Record ID."""
+        """Update one checker attempt by Checker Record ID."""
         raise NotImplementedError
 
     @abstractmethod
@@ -339,7 +339,7 @@ class LocalJsonRepository(TaskRepository):
         with self._lock:
             rows = self._read_json(self.task_checkers_file, [])
             for index, existing in enumerate(rows):
-                if str(existing.get("Checking Record ID", "")).strip() == normalized:
+                if str(existing.get("Checker Record ID", "")).strip() == normalized:
                     rows[index] = {
                         header: str(record.get(header, ""))
                         for header in TASK_CHECKER_HEADERS
@@ -1134,7 +1134,7 @@ class GoogleSheetsRepository(TaskRepository):
     ) -> None:
         normalized = str(record_id or "").strip()
         if not normalized:
-            raise RepositoryError("Checking Record ID is required.")
+            raise RepositoryError("Checker Record ID is required.")
 
         values = self._get_values(self.task_checkers_sheet_name, "A:A")
         row_number = None
