@@ -551,6 +551,9 @@ textarea[readonly] {
   border-color: #8fb4d8;
   background: #f2f7fc;
 }
+.workload-stat-full {
+  grid-column: 1 / -1;
+}
 .workload-stat strong,
 .workload-stat span {
   display: block;
