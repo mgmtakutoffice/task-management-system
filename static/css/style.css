@@ -1079,3 +1079,17 @@ textarea[readonly] {
   .notification-toast-stack { top: 72px; right: 12px; width: min(390px, calc(100vw - 24px)); }
   .notification-panel { right: -2px; }
 }
+
+
+/* Stage 5: sequential checking history */
+.checking-history-panel { margin-top: 18px; }
+.checking-history-list { display: grid; gap: 10px; padding: 0 20px 20px; }
+.checking-history-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: 9px; background: #f9fafc; }
+.checking-history-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.checking-history-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; color: var(--muted); font-size: 11px; }
+.checking-history-comment { margin-top: 10px; padding: 9px 10px; border-left: 3px solid #8f7ad1; background: #fff; white-space: pre-wrap; font-size: 12px; }
+.checking-history-status { padding: 4px 7px; border-radius: 999px; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.checking-history-status-pending { background: #fff0d7; color: #8b5300; }
+.checking-history-status-accepted { background: #dcf6eb; color: #12734f; }
+.checking-history-status-changes-required { background: #ffe1e5; color: #9c1b31; }
+.checking-accept-actions { display: flex; flex-wrap: wrap; gap: 9px; }
