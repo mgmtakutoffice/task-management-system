@@ -5,7 +5,7 @@
   <div>
     <p class="eyebrow">Checking workflow</p>
     <h1>Review Task for Checking</h1>
-    <p>Accept the checking or return the task to the original assignee with required changes.</p>
+    <p>Review the task, record your comment, and either finish checking or forward it to the next checker.</p>
   </div>
   <a class="btn btn-secondary" href="{{ url_for('ongoing_tasks') if is_task_editor else url_for('my_tasks') }}">
     {{ 'Back to Ongoing Tasks' if is_task_editor else 'Back to My Tasks' }}
@@ -25,6 +25,7 @@
   <div class="approval-meta-grid">
     <div><span>Prepared By</span><strong>{{ task['Assigned To'] or 'Unassigned' }}</strong></div>
     <div><span>Checker</span><strong>{{ task['Checker Name'] or task['Checker Email'] }}</strong></div>
+    <div><span>Checking Stage</span><strong>{{ current_stage }} of {{ max_checking_stages }}</strong></div>
     <div><span>Submitted At</span><strong>{{ task['Submitted for Checking At'] or '—' }}</strong></div>
     <div><span>Due Date</span><strong>{{ task['Due Date'] or '—' }}</strong></div>
   </div>
@@ -33,12 +34,31 @@
   {% if task['Additional Details'] %}<div class="approval-note"><strong>Additional Details</strong><p>{{ task['Additional Details'] }}</p></div>{% endif %}
   {% if task['Reference Link'] %}<div class="approval-note"><strong>Reference</strong><p><a class="table-action" href="{{ task['Reference Link'] }}" target="_blank" rel="noopener">Open document link</a></p></div>{% endif %}
 
+  {% include "_checking_history.html" %}
+
   <div class="checking-actions-grid">
     <form method="post" action="{{ url_for('complete_checking', task_id=task['Task ID']) }}" class="stack-form checking-action-box checking-pass-box">
-      <h3>Checking Completed</h3>
-      <p>Accepting completes your checking responsibility and returns the main task to the original assignee as In Progress.</p>
+      <h3>Accept Checking</h3>
       <label>Checking Comment <span class="required">*</span><textarea name="checking_comment" rows="4" placeholder="What was checked and confirmed?" required></textarea></label>
-      <button class="btn btn-success" type="submit">Accept</button>
+
+      {% if current_stage < max_checking_stages %}
+      <label>
+        Next Checker <small>Optional — select only if another level of checking is required.</small>
+        <select name="next_checker_email">
+          <option value="">Select next checker</option>
+          {% for user in next_checker_users %}
+          <option value="{{ user['Email']|lower }}">{{ user['Name'] }} — {{ user['Email'] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="checking-accept-actions">
+        <button class="btn btn-success" type="submit" name="checking_action" value="complete">Accept & Complete Checking</button>
+        <button class="btn btn-primary" type="submit" name="checking_action" value="assign_next">Accept & Assign Next Checker</button>
+      </div>
+      {% else %}
+      <p>This is the maximum checking stage. Acceptance will return the task to the original assignee.</p>
+      <button class="btn btn-success" type="submit" name="checking_action" value="complete">Accept & Complete Checking</button>
+      {% endif %}
     </form>
 
     <form method="post" action="{{ url_for('return_checking', task_id=task['Task ID']) }}" class="stack-form checking-action-box checking-return-box">

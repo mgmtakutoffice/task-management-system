@@ -6,7 +6,7 @@
   <div>
     <p class="eyebrow">Read-only task view</p>
     <h1>{{ page_title }}</h1>
-    <p>This task is currently with the checker and cannot be edited by the original assignee.</p>
+    <p>Read-only task details and complete checking history.</p>
   </div>
 
   <a class="btn btn-secondary"
@@ -124,64 +124,22 @@
 
   <div class="panel-header">
     <div>
-      <h3>Checking Details</h3>
-      <p>Read-only details of the current checking assignment.</p>
+      <h3>Current Checking Assignment</h3>
+      <p>Current checker and status.</p>
     </div>
   </div>
-
   <div class="table-wrap">
     <table class="checking-result-table">
       <tbody>
-        <tr>
-          <th>Checker</th>
-          <td>
-            {{ task.get('Checker Name')
-               or task.get('Checker Email')
-               or '—' }}
-          </td>
-        </tr>
-
-        <tr>
-          <th>Submitted for Checking By</th>
-          <td>
-            {{ task.get('Submitted for Checking By')
-               or task.get('Assigned To')
-               or '—' }}
-          </td>
-        </tr>
-
-        <tr>
-          <th>Submitted for Checking At</th>
-          <td>{{ task.get('Submitted for Checking At') or '—' }}</td>
-        </tr>
-
-        <tr>
-          <th>Checking Status</th>
-          <td>{{ task.get('Checking Status') or 'Pending' }}</td>
-        </tr>
-
-        <tr>
-          <th>Checking Completed By</th>
-          <td>{{ task.get('Checking Completed By') or '—' }}</td>
-        </tr>
-
-        <tr>
-          <th>Checking Completed At</th>
-          <td>{{ task.get('Checking Completed At') or '—' }}</td>
-        </tr>
-
-        <tr>
-          <th>Checking Comment</th>
-          <td>{{ task.get('Checking Comment') or '—' }}</td>
-        </tr>
-
-        <tr>
-          <th>Changes Required Comment</th>
-          <td>{{ task.get('Changes Required Comment') or '—' }}</td>
-        </tr>
+        <tr><th>Checker</th><td>{{ task.get('Checker Name') or task.get('Checker Email') or '—' }}</td></tr>
+        <tr><th>Submitted for Checking By</th><td>{{ task.get('Submitted for Checking By') or task.get('Assigned To') or '—' }}</td></tr>
+        <tr><th>Submitted for Checking At</th><td>{{ task.get('Submitted for Checking At') or '—' }}</td></tr>
+        <tr><th>Checking Status</th><td>{{ task.get('Checking Status') or '—' }}</td></tr>
       </tbody>
     </table>
   </div>
+
+  {% include "_checking_history.html" %}
 
   {% if task.get('Reference Link') %}
   <div class="approval-note">
