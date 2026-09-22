@@ -271,53 +271,8 @@
     {% endif %}
   </div>
 
-  {% if task and task.get('Checking Status') in ['Checked', 'Changes Required'] %}
-  <div class="panel checking-result-panel">
-    <div class="panel-header">
-      <div>
-        <h3>Checking Review</h3>
-        <p>Read-only details of the latest completed checking review.</p>
-      </div>
-    </div>
-    <div class="table-wrap">
-      <table class="checking-result-table">
-        <tbody>
-          <tr>
-            <th>Status</th>
-            <td>
-              {% if task.get('Checking Status') == 'Checked' %}
-                <strong>Checking Accepted</strong>
-              {% else %}
-                <strong>Changes Required After Checking</strong>
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <th>Checker</th>
-            <td>{{ task.get('Checking Completed By') or task.get('Checker Name') or task.get('Checker Email') or '—' }}</td>
-          </tr>
-          <tr>
-            <th>Submitted for Checking</th>
-            <td>{{ task.get('Submitted for Checking At') or '—' }}</td>
-          </tr>
-          <tr>
-            <th>Checking Completed</th>
-            <td>{{ task.get('Checking Completed At') or '—' }}</td>
-          </tr>
-          <tr>
-            <th>Comment</th>
-            <td>
-              {% if task.get('Checking Status') == 'Checked' %}
-                {{ task.get('Checking Comment') or 'No comment recorded.' }}
-              {% else %}
-                {{ task.get('Changes Required Comment') or 'No comment recorded.' }}
-              {% endif %}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
+  {% if task %}
+  {% include "_checking_history.html" %}
   {% endif %}
 
   <div class="form-actions">

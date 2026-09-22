@@ -182,7 +182,7 @@
                   </div>
 
                   {% if not archive_view and task.get('_can_open') %}
-                    <a class="btn btn-small btn-secondary completed-open-task-link" href="{{ url_for('edit_task', task_id=task.get('Task ID')) }}">Open Task</a>
+                    <a class="btn btn-small btn-secondary completed-open-task-link" href="{{ url_for('view_task', task_id=task.get('Task ID')) }}">View Task & Checking History</a>
                   {% endif %}
                 {% endif %}
 

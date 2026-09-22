@@ -1,0 +1,29 @@
+{% if checking_history %}
+<section class="panel checking-history-panel">
+  <div class="panel-header">
+    <div>
+      <h3>Checking History</h3>
+      <p>All checker stages and re-check attempts are preserved.</p>
+    </div>
+  </div>
+  <div class="checking-history-list">
+    {% for item in checking_history %}
+    <article class="checking-history-item">
+      <div class="checking-history-head">
+        <strong>Stage {{ item.get('Stage') or '1' }}{% if (item.get('Attempt') or '1') != '1' %} · Attempt {{ item.get('Attempt') }}{% endif %}</strong>
+        <span class="checking-history-status checking-history-status-{{ (item.get('Status') or 'pending')|lower|replace(' ', '-') }}">{{ item.get('Status') or 'Pending' }}</span>
+      </div>
+      <div class="checking-history-meta">
+        <span><b>Checker:</b> {{ item.get('Checker Name') or item.get('Checker Email') or '—' }}</span>
+        <span><b>Assigned by:</b> {{ item.get('Assigned By') or '—' }}</span>
+        <span><b>Assigned:</b> {{ item.get('Assigned At') or '—' }}</span>
+        {% if item.get('Completed At') %}<span><b>Completed:</b> {{ item.get('Completed At') }}</span>{% endif %}
+      </div>
+      {% if item.get('Comment') %}
+      <div class="checking-history-comment">{{ item.get('Comment') }}</div>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
