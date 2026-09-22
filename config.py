@@ -72,6 +72,31 @@ TASK_HEADERS = [
     "Billing Completed At",
 ]
 
+
+# Sequential checking history. One row represents one checker attempt.
+TASK_CHECKER_HEADERS = [
+    "Checking Record ID",
+    "Task ID",
+    "Stage",
+    "Attempt",
+    "Checker Name",
+    "Checker Email",
+    "Status",
+    "Assigned By",
+    "Assigned By Email",
+    "Assigned At",
+    "Submitted At",
+    "Decision By",
+    "Decision By Email",
+    "Decision At",
+    "Comment",
+    "Next Checker Name",
+    "Next Checker Email",
+    "Active",
+    "Created At",
+    "Updated At",
+]
+
 # Append-only backend audit log. This is intentionally kept separate from
 # the Tasks sheet so repeated status changes are never overwritten.
 TASK_ACTIVITY_HEADERS = [
@@ -165,6 +190,7 @@ class Config:
     GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
     GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "").strip()
     TASKS_SHEET_NAME = os.getenv("TASKS_SHEET_NAME", "Tasks").strip()
+    TASK_CHECKERS_SHEET_NAME = os.getenv("TASK_CHECKERS_SHEET_NAME", "Task Checkers").strip()
     USERS_SHEET_NAME = os.getenv("USERS_SHEET_NAME", "Users").strip()
     MASTERS_SHEET_NAME = os.getenv("MASTERS_SHEET_NAME", "Masters").strip()
     CLIENTS_SHEET_NAME = os.getenv("CLIENTS_SHEET_NAME", "Clients").strip()

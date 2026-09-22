@@ -17,6 +17,7 @@ from config import (
     NOTIFICATION_HEADERS,
     PUSH_SUBSCRIPTION_HEADERS,
     TASK_ACTIVITY_HEADERS,
+    TASK_CHECKER_HEADERS,
     TASK_HEADERS,
     USER_HEADERS,
 )
@@ -116,6 +117,20 @@ class TaskRepository(ABC):
     ) -> None:
         raise NotImplementedError
 
+    def get_task_checkers(self, task_id: str) -> list[dict[str, str]]:
+        """Return sequential checker records for one task."""
+        raise NotImplementedError
+
+    def add_task_checker(self, record: dict[str, str]) -> None:
+        """Append one checker assignment/attempt."""
+        raise NotImplementedError
+
+    def update_task_checker(
+        self, record_id: str, record: dict[str, str]
+    ) -> None:
+        """Update one checker attempt by Checking Record ID."""
+        raise NotImplementedError
+
     @abstractmethod
     def add_notification(self, notification: dict[str, str]) -> None:
         raise NotImplementedError
@@ -192,6 +207,7 @@ class LocalJsonRepository(TaskRepository):
         self.clients_file = self.data_dir / "clients.json"
         self.masters_file = self.data_dir / "masters.json"
         self.activity_file = self.data_dir / "task_activity_log.json"
+        self.task_checkers_file = self.data_dir / "task_checkers.json"
         self.notifications_file = self.data_dir / "notifications.json"
         self.push_subscriptions_file = self.data_dir / "push_subscriptions.json"
         self._lock = threading.RLock()
@@ -207,6 +223,8 @@ class LocalJsonRepository(TaskRepository):
                 self._write_json(self.clients_file, [])
             if not self.activity_file.exists():
                 self._write_json(self.activity_file, [])
+            if not self.task_checkers_file.exists():
+                self._write_json(self.task_checkers_file, [])
             if not self.notifications_file.exists():
                 self._write_json(self.notifications_file, [])
             if not self.push_subscriptions_file.exists():
@@ -295,6 +313,40 @@ class LocalJsonRepository(TaskRepository):
                 for activity in activities
             )
             self._write_json(self.activity_file, rows)
+
+    def get_task_checkers(self, task_id: str) -> list[dict[str, str]]:
+        normalized = str(task_id or "").strip()
+        with self._lock:
+            rows = self._read_json(self.task_checkers_file, [])
+        return [
+            {header: str(row.get(header, "")) for header in TASK_CHECKER_HEADERS}
+            for row in rows
+            if str(row.get("Task ID", "")).strip() == normalized
+        ]
+
+    def add_task_checker(self, record: dict[str, str]) -> None:
+        with self._lock:
+            rows = self._read_json(self.task_checkers_file, [])
+            rows.append(
+                {header: str(record.get(header, "")) for header in TASK_CHECKER_HEADERS}
+            )
+            self._write_json(self.task_checkers_file, rows)
+
+    def update_task_checker(
+        self, record_id: str, record: dict[str, str]
+    ) -> None:
+        normalized = str(record_id or "").strip()
+        with self._lock:
+            rows = self._read_json(self.task_checkers_file, [])
+            for index, existing in enumerate(rows):
+                if str(existing.get("Checking Record ID", "")).strip() == normalized:
+                    rows[index] = {
+                        header: str(record.get(header, ""))
+                        for header in TASK_CHECKER_HEADERS
+                    }
+                    self._write_json(self.task_checkers_file, rows)
+                    return
+        raise RepositoryError(f"Checker record {record_id} was not found.")
 
     def add_notification(self, notification: dict[str, str]) -> None:
         with self._lock:
@@ -487,6 +539,7 @@ class GoogleSheetsRepository(TaskRepository):
         credentials_json: str,
         credentials_file: str,
         tasks_sheet_name: str,
+        task_checkers_sheet_name: str,
         users_sheet_name: str,
         masters_sheet_name: str,
         clients_sheet_name: str,
@@ -565,6 +618,7 @@ class GoogleSheetsRepository(TaskRepository):
         )
         self.spreadsheet_id = spreadsheet_id
         self.tasks_sheet_name = tasks_sheet_name
+        self.task_checkers_sheet_name = task_checkers_sheet_name
         self.users_sheet_name = users_sheet_name
         self.masters_sheet_name = masters_sheet_name
         self.clients_sheet_name = clients_sheet_name
@@ -654,6 +708,7 @@ class GoogleSheetsRepository(TaskRepository):
         }
         required = [
             self.tasks_sheet_name,
+            self.task_checkers_sheet_name,
             self.users_sheet_name,
             self.masters_sheet_name,
             self.clients_sheet_name,
@@ -677,6 +732,7 @@ class GoogleSheetsRepository(TaskRepository):
                 )
 
         self._ensure_header(self.tasks_sheet_name, TASK_HEADERS)
+        self._ensure_header(self.task_checkers_sheet_name, TASK_CHECKER_HEADERS)
         self._ensure_header(self.users_sheet_name, USER_HEADERS)
         self._ensure_header(self.masters_sheet_name, MASTER_HEADERS)
         self._ensure_header(self.clients_sheet_name, CLIENT_HEADERS)
@@ -1039,6 +1095,61 @@ class GoogleSheetsRepository(TaskRepository):
                 ),
                 [_dict_to_row(TASK_HEADERS, task)],
             )
+
+    def get_task_checkers(self, task_id: str) -> list[dict[str, str]]:
+        normalized = str(task_id or "").strip()
+        end_column = self._column_letter(len(TASK_CHECKER_HEADERS))
+        values = self._get_values(
+            self.task_checkers_sheet_name,
+            f"A:{end_column}",
+        )
+        if not values:
+            return []
+
+        headers = values[0]
+        records: list[dict[str, str]] = []
+        for sheet_row, row in enumerate(values[1:], start=2):
+            if not any(str(value).strip() for value in row):
+                continue
+            source = _row_to_dict(headers, row)
+            if str(source.get("Task ID", "")).strip() != normalized:
+                continue
+            item = {
+                header: source.get(header, "")
+                for header in TASK_CHECKER_HEADERS
+            }
+            item["_sheet_row"] = str(sheet_row)
+            records.append(item)
+        return records
+
+    def add_task_checker(self, record: dict[str, str]) -> None:
+        self._append_values(
+            self.task_checkers_sheet_name,
+            TASK_CHECKER_HEADERS,
+            _dict_to_row(TASK_CHECKER_HEADERS, record),
+        )
+
+    def update_task_checker(
+        self, record_id: str, record: dict[str, str]
+    ) -> None:
+        normalized = str(record_id or "").strip()
+        if not normalized:
+            raise RepositoryError("Checking Record ID is required.")
+
+        values = self._get_values(self.task_checkers_sheet_name, "A:A")
+        row_number = None
+        for index, row in enumerate(values[1:], start=2):
+            if row and str(row[0]).strip() == normalized:
+                row_number = index
+                break
+        if row_number is None:
+            raise RepositoryError(f"Checker record {record_id} was not found.")
+
+        end_column = self._column_letter(len(TASK_CHECKER_HEADERS))
+        self._update_values(
+            f"'{self.task_checkers_sheet_name}'!A{row_number}:{end_column}{row_number}",
+            [_dict_to_row(TASK_CHECKER_HEADERS, record)],
+        )
 
     def get_task_activities(self) -> list[dict[str, str]]:
         # Digest/reporting currently needs only Activity ID through Activity At.
@@ -1445,6 +1556,7 @@ def build_repository(config: Any) -> TaskRepository:
             credentials_json=config["GOOGLE_CREDENTIALS_JSON"],
             credentials_file=config["GOOGLE_CREDENTIALS_FILE"],
             tasks_sheet_name=config["TASKS_SHEET_NAME"],
+            task_checkers_sheet_name=config["TASK_CHECKERS_SHEET_NAME"],
             users_sheet_name=config["USERS_SHEET_NAME"],
             masters_sheet_name=config["MASTERS_SHEET_NAME"],
             clients_sheet_name=config["CLIENTS_SHEET_NAME"],

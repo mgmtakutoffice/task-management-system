@@ -37,6 +37,7 @@ from config import (  # noqa: E402
     Config,
     DEFAULT_PRIORITIES,
     DEFAULT_STATUSES,
+    TASK_CHECKER_HEADERS,
     TASK_HEADERS,
 )
 from repository import (  # noqa: E402
@@ -496,6 +497,192 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 "recorded. Please inform the administrator.",
                 "warning",
             )
+
+    MAX_CHECKING_STAGES = 3
+
+    def checking_history(task_id: str) -> list[dict[str, str]]:
+        rows = repo().get_task_checkers(task_id)
+        rows.sort(
+            key=lambda row: (
+                int(str(row.get("Stage", "0") or "0")),
+                int(str(row.get("Attempt", "0") or "0")),
+                str(row.get("Submitted At", "") or row.get("Assigned At", "")),
+            )
+        )
+        return rows
+
+    def _record_number(record: dict[str, str], key: str, default: int = 0) -> int:
+        try:
+            return int(str(record.get(key, "") or default))
+        except (TypeError, ValueError):
+            return default
+
+    def current_checker_record(task: dict[str, str]) -> dict[str, str] | None:
+        rows = checking_history(task.get("Task ID", ""))
+        current_email = str(task.get("Checker Email", "")).strip().lower()
+        pending = [
+            row for row in rows
+            if str(row.get("Status", "")).strip().lower() == "pending"
+            and str(row.get("Checker Email", "")).strip().lower() == current_email
+        ]
+        if pending:
+            return pending[-1]
+        return rows[-1] if rows else None
+
+    def ensure_current_checker_record(task: dict[str, str]) -> dict[str, str]:
+        current = current_checker_record(task)
+        if current and str(current.get("Status", "")).strip().lower() == "pending":
+            return current
+
+        rows = checking_history(task.get("Task ID", ""))
+        stage = max((_record_number(row, "Stage", 1) for row in rows), default=1)
+        if not rows:
+            stage = 1
+        attempt = max(
+            (
+                _record_number(row, "Attempt", 0)
+                for row in rows
+                if _record_number(row, "Stage", 0) == stage
+            ),
+            default=0,
+        ) + 1
+
+        submitted_at = task.get("Submitted for Checking At", "")
+        created_at = submitted_at or datetime.now().strftime(DATETIME_FORMAT)
+        submitted_by = task.get("Submitted for Checking By", "")
+        submitted_by_email = ""
+        submitted_by_key = str(submitted_by).strip().lower()
+        for candidate in active_users():
+            if submitted_by_key in {
+                str(candidate.get("Name", "")).strip().lower(),
+                str(candidate.get("Email", "")).strip().lower(),
+            }:
+                submitted_by_email = str(candidate.get("Email", "")).strip().lower()
+                break
+        if not submitted_by_email and (
+            submitted_by_key
+            == str(task.get("Assigned To", "")).strip().lower()
+        ):
+            submitted_by_email = str(
+                task.get("Assigned To Email", "")
+            ).strip().lower()
+
+        record = {
+            "Checking Record ID": uuid.uuid4().hex,
+            "Task ID": task.get("Task ID", ""),
+            "Stage": str(stage),
+            "Attempt": str(attempt),
+            "Checker Name": task.get("Checker Name", ""),
+            "Checker Email": task.get("Checker Email", ""),
+            "Status": "Pending",
+            "Assigned By": submitted_by,
+            "Assigned By Email": submitted_by_email,
+            "Assigned At": submitted_at,
+            "Submitted At": submitted_at,
+            "Decision By": "",
+            "Decision By Email": "",
+            "Decision At": "",
+            "Comment": "",
+            "Next Checker Name": "",
+            "Next Checker Email": "",
+            "Active": "Yes",
+            "Created At": created_at,
+            "Updated At": created_at,
+        }
+        repo().add_task_checker(record)
+        return record
+
+    def record_checking_submission(
+        previous: dict[str, str],
+        updated: dict[str, str],
+    ) -> None:
+        """Create the initial checker record or a new re-check attempt."""
+        rows = checking_history(updated.get("Task ID", ""))
+        same_checker_recheck = (
+            checking_status_value(previous) == CHECKING_CHANGES_REQUIRED.lower()
+            and str(previous.get("Checker Email", "")).strip().lower()
+            == str(updated.get("Checker Email", "")).strip().lower()
+        )
+
+        if same_checker_recheck and rows:
+            stage = max((_record_number(row, "Stage", 1) for row in rows), default=1)
+            attempt = max(
+                (
+                    _record_number(row, "Attempt", 0)
+                    for row in rows
+                    if _record_number(row, "Stage", 0) == stage
+                ),
+                default=0,
+            ) + 1
+        else:
+            stage = 1
+            attempt = 1
+            if rows:
+                # A fresh checking cycle after an earlier completed cycle starts
+                # again at stage 1, while the historical rows remain preserved.
+                stage = 1
+                attempt = max(
+                    (
+                        _record_number(row, "Attempt", 0)
+                        for row in rows
+                        if _record_number(row, "Stage", 0) == 1
+                    ),
+                    default=0,
+                ) + 1
+
+        actor = current_user()
+        submitted_at = (
+            updated.get("Submitted for Checking At", "")
+            or datetime.now().strftime(DATETIME_FORMAT)
+        )
+        repo().add_task_checker(
+            {
+                "Checking Record ID": uuid.uuid4().hex,
+                "Task ID": updated.get("Task ID", ""),
+                "Stage": str(stage),
+                "Attempt": str(attempt),
+                "Checker Name": updated.get("Checker Name", ""),
+                "Checker Email": updated.get("Checker Email", ""),
+                "Status": "Pending",
+                "Assigned By": (
+                    updated.get("Submitted for Checking By", "")
+                    or actor.get("name", "")
+                    or actor.get("email", "")
+                ),
+                "Assigned By Email": actor.get("email", ""),
+                "Assigned At": submitted_at,
+                "Submitted At": submitted_at,
+                "Decision By": "",
+                "Decision By Email": "",
+                "Decision At": "",
+                "Comment": "",
+                "Next Checker Name": "",
+                "Next Checker Email": "",
+                "Active": "Yes",
+                "Created At": submitted_at,
+                "Updated At": submitted_at,
+            }
+        )
+
+    def checker_stage(task: dict[str, str]) -> int:
+        record = current_checker_record(task)
+        return _record_number(record or {}, "Stage", 1) or 1
+
+    def active_checker_options(task: dict[str, str]) -> list[dict[str, str]]:
+        assignee = str(task.get("Assigned To Email", "")).strip().lower()
+        current_checker = str(task.get("Checker Email", "")).strip().lower()
+        used = {
+            str(row.get("Checker Email", "")).strip().lower()
+            for row in checking_history(task.get("Task ID", ""))
+            if str(row.get("Checker Email", "")).strip()
+        }
+        return [
+            user
+            for user in active_users()
+            if str(user.get("Email", "")).strip().lower()
+            not in {assignee, current_checker}
+            and str(user.get("Email", "")).strip().lower() not in used
+        ]
 
     def browser_push_configured() -> bool:
         return bool(
@@ -2099,6 +2286,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             masters=master_data,
             clients=clients,
             status_options=status_options_for_form(None),
+            checking_history=[],
         )
 
     @app.route("/update-task")
@@ -2343,15 +2531,34 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             flash("You do not have access to view this task.", "warning")
             return redirect(url_for(ongoing_return_endpoint()))
 
-        if not is_task_editor() and not is_pending_checking(task):
-            # Once checking is finished, the normal user should use the ordinary
-            # Edit page again so that the returned task can be worked on.
+        history = checking_history(task_id)
+        current_email = current_user_email()
+        is_history_checker = any(
+            str(row.get("Checker Email", "")).strip().lower() == current_email
+            for row in history
+        )
+
+        if not (
+            is_task_editor()
+            or task_assigned_to_current_user(task)
+            or is_history_checker
+        ):
+            flash("You do not have access to view this task.", "warning")
+            return redirect(url_for(ongoing_return_endpoint()))
+
+        if (
+            not is_task_editor()
+            and task_assigned_to_current_user(task)
+            and not is_pending_checking(task)
+            and not is_completed(task)
+        ):
             return redirect(url_for("edit_task", task_id=task_id))
 
         return render_template(
             "task_view.html",
             page_title="Task Details",
             task=task,
+            checking_history=history,
         )
 
     @app.route("/tasks/<task_id>/edit", methods=["GET", "POST"])
@@ -2412,6 +2619,8 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                         task, updated
                     )
                     repo().update_task(task_id, updated)
+                    if notify_checker:
+                        record_checking_submission(task, updated)
                     save_task_activities(update_activity_rows(task, updated))
                     if notify_checker:
                         add_notification(
@@ -2452,6 +2661,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             can_self_complete=(
                 is_task_editor() and task_assigned_to_current_user(task)
             ),
+            checking_history=checking_history(task_id),
         )
 
     @app.route("/tasks/<task_id>/checking")
@@ -2464,7 +2674,16 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         if not can_review_checking(task):
             flash("This checking assignment is not available to you.", "warning")
             return redirect(url_for(ongoing_return_endpoint()))
-        return render_template("checking_review.html", task=task)
+        current_record = ensure_current_checker_record(task)
+        stage = _record_number(current_record, "Stage", 1) or 1
+        return render_template(
+            "checking_review.html",
+            task=task,
+            checking_history=checking_history(task_id),
+            current_stage=stage,
+            max_checking_stages=MAX_CHECKING_STAGES,
+            next_checker_users=active_checker_options(task),
+        )
 
     @app.route("/tasks/<task_id>/checking/complete", methods=["POST"])
     @login_required
@@ -2476,13 +2695,72 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         if not can_review_checking(task):
             flash("This checking assignment is not available to you.", "warning")
             return redirect(url_for(ongoing_return_endpoint()))
+
         comment = request.form.get("checking_comment", "").strip()
+        action = request.form.get("checking_action", "complete").strip().lower()
+        next_checker_email = request.form.get("next_checker_email", "").strip().lower()
+
         if not comment:
             flash("Please enter a checking comment.", "danger")
             return redirect(url_for("review_checking", task_id=task_id))
 
+        current_record = ensure_current_checker_record(task)
+        current_stage = _record_number(current_record, "Stage", 1) or 1
+
+        next_checker_name = ""
+        if action == "assign_next":
+            if current_stage >= MAX_CHECKING_STAGES:
+                flash("Maximum checking stage has already been reached.", "danger")
+                return redirect(url_for("review_checking", task_id=task_id))
+            users_by_email = {
+                str(item.get("Email", "")).strip().lower(): item
+                for item in active_users()
+            }
+            next_user = users_by_email.get(next_checker_email)
+            if not next_user:
+                flash("Please select a valid next checker.", "danger")
+                return redirect(url_for("review_checking", task_id=task_id))
+            if next_checker_email == str(task.get("Assigned To Email", "")).strip().lower():
+                flash("The original assignee cannot be selected as the next checker.", "danger")
+                return redirect(url_for("review_checking", task_id=task_id))
+            used_checker_emails = {
+                str(row.get("Checker Email", "")).strip().lower()
+                for row in checking_history(task_id)
+            }
+            if next_checker_email in used_checker_emails:
+                flash("A checker already used in this checking sequence cannot be selected again.", "danger")
+                return redirect(url_for("review_checking", task_id=task_id))
+            next_checker_name = str(next_user.get("Name", "")).strip()
+
         user = current_user()
         now = datetime.now().strftime(DATETIME_FORMAT)
+
+        completed_record = {
+            header: current_record.get(header, "")
+            for header in TASK_CHECKER_HEADERS
+        }
+        completed_record.update(
+            {
+                "Status": "Accepted",
+                "Decision By": user["name"] or user["email"],
+                "Decision By Email": user["email"],
+                "Decision At": now,
+                "Comment": comment,
+                "Next Checker Name": (
+                    next_checker_name if action == "assign_next" else ""
+                ),
+                "Next Checker Email": (
+                    next_checker_email if action == "assign_next" else ""
+                ),
+                "Active": "No",
+                "Updated At": now,
+            }
+        )
+        repo().update_task_checker(
+            completed_record["Checking Record ID"],
+            completed_record,
+        )
+
         updated = {header: task.get(header, "") for header in TASK_HEADERS}
         updated.update(
             {
@@ -2493,15 +2771,6 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 "Changes Required Comment": "",
                 "Last Updated By": user["name"] or user["email"],
                 "Last Updated At": now,
-            }
-        )
-
-        # Checking acceptance completes only the checker's responsibility.
-        # The main task returns to the original assignee as In Progress so the
-        # assignee can incorporate the review and later submit it for completion.
-        updated.update(
-            {
-                "Status": "In Progress",
                 "Completion Date": "",
                 "Completion Approval Status": "",
                 "Completion Approved By": "",
@@ -2512,41 +2781,124 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             }
         )
         clear_checking_authorised_today(updated)
-        message = (
-            "Checking completed and accepted. The task has been returned to the "
-            "original assignee with status In Progress."
-        )
 
-        repo().update_task(task_id, updated)
-        save_task_activities(
-            [
-                task_activity(
-                    task_id=task_id,
-                    activity_type="Checking Accepted",
-                    previous=task,
-                    updated=updated,
-                    checking_outcome="Accepted",
-                    comment=comment,
-                    additional_information=(
-                        "Checking completed and accepted. The task was returned "
-                        "to the original assignee with status In Progress."
-                    ),
-                )
-            ]
-        )
-        add_notification(
-            user_email=updated.get("Assigned To Email", ""),
-            notification_type=NOTIFICATION_CHECKING_ACCEPTED,
-            task=updated,
-            title="Checking accepted",
-            message=(
-                f"Your task checking has been accepted by "
-                f"{user.get('name', '') or user.get('email', '')}: "
-                f"{notification_task_label(updated)}."
-                + (f" Comment: {comment}" if comment else "")
-            ),
-        )
-        flash(message, "success")
+        if action == "assign_next":
+            next_stage = current_stage + 1
+            updated.update(
+                {
+                    "Status": PENDING_CHECKING_STATUS,
+                    "Checker Name": next_checker_name,
+                    "Checker Email": next_checker_email,
+                    "Checking Status": CHECKING_PENDING,
+                    "Submitted for Checking By": user["name"] or user["email"],
+                    "Submitted for Checking At": now,
+                    "Checking Completed By": "",
+                    "Checking Completed At": "",
+                    "Checking Comment": "",
+                    "Changes Required Comment": "",
+                }
+            )
+            repo().update_task(task_id, updated)
+            repo().add_task_checker(
+                {
+                    "Checking Record ID": uuid.uuid4().hex,
+                    "Task ID": task_id,
+                    "Stage": str(next_stage),
+                    "Attempt": "1",
+                    "Checker Name": next_checker_name,
+                    "Checker Email": next_checker_email,
+                    "Status": "Pending",
+                    "Assigned By": user["name"] or user["email"],
+                    "Assigned By Email": user["email"],
+                    "Assigned At": now,
+                    "Submitted At": now,
+                    "Decision By": "",
+                    "Decision By Email": "",
+                    "Decision At": "",
+                    "Comment": "",
+                    "Next Checker Name": "",
+                    "Next Checker Email": "",
+                    "Active": "Yes",
+                    "Created At": now,
+                    "Updated At": now,
+                }
+            )
+            save_task_activities(
+                [
+                    task_activity(
+                        task_id=task_id,
+                        activity_type="Checking Accepted and Forwarded",
+                        previous=task,
+                        updated=updated,
+                        checking_outcome="Accepted",
+                        comment=comment,
+                        additional_information=(
+                            f"Stage {current_stage} accepted and forwarded "
+                            f"to stage {next_stage}: {next_checker_name}."
+                        ),
+                    )
+                ]
+            )
+            add_notification(
+                user_email=next_checker_email,
+                notification_type=NOTIFICATION_CHECKING_ASSIGNMENT,
+                task=updated,
+                title=f"Task assigned for checking - Stage {next_stage}",
+                message=(
+                    f"{user.get('name', '') or user.get('email', '')} assigned "
+                    f"this task to you for checking: {notification_task_label(updated)}."
+                ),
+            )
+            add_notification(
+                user_email=updated.get("Assigned To Email", ""),
+                notification_type=NOTIFICATION_CHECKING_ACCEPTED,
+                task=updated,
+                title=f"Checking stage {current_stage} accepted",
+                message=(
+                    f"{user.get('name', '') or user.get('email', '')} accepted "
+                    f"checking stage {current_stage} and forwarded the task to "
+                    f"{next_checker_name}. Comment: {comment}"
+                ),
+            )
+            flash(
+                f"Checking accepted and assigned to {next_checker_name} as stage {next_stage}.",
+                "success",
+            )
+        else:
+            updated["Status"] = "In Progress"
+            repo().update_task(task_id, updated)
+            save_task_activities(
+                [
+                    task_activity(
+                        task_id=task_id,
+                        activity_type="Checking Accepted",
+                        previous=task,
+                        updated=updated,
+                        checking_outcome="Accepted",
+                        comment=comment,
+                        additional_information=(
+                            f"Checking stage {current_stage} completed. "
+                            "The task returned to the original assignee."
+                        ),
+                    )
+                ]
+            )
+            add_notification(
+                user_email=updated.get("Assigned To Email", ""),
+                notification_type=NOTIFICATION_CHECKING_ACCEPTED,
+                task=updated,
+                title="Checking accepted",
+                message=(
+                    f"Your task checking has been accepted by "
+                    f"{user.get('name', '') or user.get('email', '')}: "
+                    f"{notification_task_label(updated)}. Comment: {comment}"
+                ),
+            )
+            flash(
+                "Checking completed and accepted. The task has been returned to the original assignee.",
+                "success",
+            )
+
         return redirect(url_for(ongoing_return_endpoint()))
 
     @app.route("/tasks/<task_id>/checking/return", methods=["POST"])
@@ -2587,6 +2939,30 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
             }
         )
         clear_checking_authorised_today(updated)
+
+        current_record = ensure_current_checker_record(task)
+        returned_record = {
+            header: current_record.get(header, "")
+            for header in TASK_CHECKER_HEADERS
+        }
+        returned_record.update(
+            {
+                "Status": "Changes Required",
+                "Decision By": user["name"] or user["email"],
+                "Decision By Email": user["email"],
+                "Decision At": now,
+                "Comment": reason,
+                "Next Checker Name": "",
+                "Next Checker Email": "",
+                "Active": "No",
+                "Updated At": now,
+            }
+        )
+        repo().update_task_checker(
+            returned_record["Checking Record ID"],
+            returned_record,
+        )
+
         repo().update_task(task_id, updated)
         save_task_activities(
             [
@@ -3340,7 +3716,12 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 # Archived records are deliberately read-only. Restore them
                 # first before changing task details.
                 item["_can_open"] = (
-                    False if archive_view else can_update_task(task)
+                    False
+                    if archive_view
+                    else (
+                        is_task_editor()
+                        or task_assigned_to_current_user(task)
+                    )
                 )
                 completed_items.append(item)
 
