@@ -1882,6 +1882,8 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                     continue
 
                 associate_summary[name]["ongoing"] += 1
+                if task.get("_due_date") == today_date:
+                    associate_summary[name]["due_today"] += 1
                 if task.get("_is_overdue"):
                     # Count overdue assigned responsibility under the assignee.
                     # Pending-checking work is also counted below under the
@@ -1892,6 +1894,8 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                     checker_name = str(task.get("Checker Name", "")).strip()
                     if checker_name:
                         associate_summary[checker_name]["checking"] += 1
+                        if task.get("_due_date") == today_date:
+                            associate_summary[checker_name]["due_today"] += 1
                         if task.get("_is_overdue"):
                             associate_summary[checker_name]["overdue"] += 1
 
@@ -1911,6 +1915,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                         "name": name,
                         "ongoing": counts["ongoing"],
                         "checking": counts["checking"],
+                        "due_today": counts["due_today"],
                         "overdue": counts["overdue"],
                         "completed_month": counts["completed_month"],
                         "active_total": active_total,
