@@ -2081,7 +2081,7 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
 
             for checking_entry in completed_checking_entries:
                 # Use the same responsible-user name as the purple Completed
-                # Tasks entry so the dashboard count reconciles to that page.
+                # Tasks entry so the dashboard monthly count reconciles to that page.
                 checker_email = str(
                     checking_entry.get("Checker Email", "")
                 ).strip().lower()
@@ -2092,6 +2092,23 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                     or "Unassigned"
                 )
                 associate_summary[checker_name]["checking_completed_month"] += 1
+
+            # Lifetime Completed till date = completed main tasks + completed
+            # checking responsibilities (the same purple checking-completed
+            # records used by the Completed Tasks page), with no month filter.
+            for dashboard_task in all_tasks:
+                if not is_completed_checking(dashboard_task):
+                    continue
+                checker_email = str(
+                    dashboard_task.get("Checker Email", "")
+                ).strip().lower()
+                checker_name = (
+                    str(dashboard_task.get("Checker Name", "")).strip()
+                    or name_by_email.get(checker_email, "")
+                    or checker_email
+                    or "Unassigned"
+                )
+                associate_summary[checker_name]["total_completed"] += 1
 
             for task in all_tasks:
                 name = str(task.get("Assigned To", "")).strip() or "Unassigned"
