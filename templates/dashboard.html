@@ -26,7 +26,7 @@
   <a href="{{ url_for('ongoing_tasks') }}" class="metric-card"><span>Ongoing</span><strong>{{ metrics.ongoing }}</strong></a>
   <a href="{{ url_for('ongoing_tasks', status='Pending for Checking') }}" class="metric-card metric-check"><span>For Checking</span><strong>{{ metrics.pending_checking }}</strong></a>
   <a href="{{ url_for('completion_approvals') }}" class="metric-card metric-approval"><span>Completion Approvals</span><strong>{{ metrics.pending_approvals }}</strong></a>
-  <a href="{{ url_for('completed_tasks', completed_month=current_month) }}" class="metric-card metric-success"><span>Completed This Month</span><strong>{{ metrics.completed_month }}</strong></a>
+  <a href="{{ url_for('completed_tasks', completed_month=current_month) }}" class="metric-card metric-success"><span>Tasks Tasks Completed This Month</span><strong>{{ metrics.completed_month }}</strong></a>
   <a href="{{ url_for('completed_tasks', completed_month=current_month) }}" class="metric-card metric-check"><span>Checking Completed This Month</span><strong>{{ metrics.checking_completed_month }}</strong></a>
 </section>
 
@@ -71,7 +71,7 @@
       <div class="workload-card-heading">
         <div>
           <strong>{{ row.name }}</strong>
-          <small class="workload-completed-total">Total completed till date: {{ row.total_completed }}</small>
+          <small class="workload-completed-total">Completed till date: {{ row.total_completed }}</small>
           <small>{{ row.active_total }} active responsibilit{{ 'y' if row.active_total == 1 else 'ies' }}</small>
         </div>
         <span class="workload-total">{{ row.active_total }}</span>
@@ -100,7 +100,7 @@
         </a>
         <a href="{{ url_for('completed_tasks', assigned_to=row.name, completed_month=current_month) }}" class="workload-stat">
           <strong>{{ row.completed_month }}</strong>
-          <span>Completed this month</span>
+          <span>Tasks completed this month</span>
         </a>
         <a href="{{ url_for('completed_tasks', assigned_to=row.name, completed_month=current_month) }}" class="workload-stat">
           <strong>{{ row.checking_completed_month }}</strong>
@@ -124,7 +124,7 @@
   <a href="{{ url_for('my_tasks', overdue='1', responsibility='assigned') }}" class="metric-card metric-danger"><span>Overdue</span><strong>{{ metrics.overdue }}</strong></a>
   <a href="{{ url_for('my_tasks', status='Pending for Checking', responsibility='checking') }}" class="metric-card metric-check"><span>For Checking</span><strong>{{ metrics.pending_checking }}</strong></a>
   <a href="{{ url_for('my_tasks', status='Pending Completion Approval', responsibility='assigned') }}" class="metric-card metric-approval"><span>Awaiting Approval</span><strong>{{ metrics.pending_approvals }}</strong></a>
-  <a href="{{ url_for('completed_tasks', completed_month=current_month) }}" class="metric-card metric-success"><span>Completed This Month</span><strong>{{ metrics.completed_month }}</strong></a>
+  <a href="{{ url_for('completed_tasks', completed_month=current_month) }}" class="metric-card metric-success"><span>Tasks Tasks Completed This Month</span><strong>{{ metrics.completed_month }}</strong></a>
 </section>
 
 <section class="panel personal-priority-panel">
