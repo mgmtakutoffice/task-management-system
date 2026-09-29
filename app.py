@@ -1939,62 +1939,59 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 for task in completed
             )
 
-            # Sequential checking can have multiple completed checker
-            # responsibilities for one task (Checker 1 -> Checker 2 -> Checker 3).
-            # Count from Task Checkers history so every completed checker stage is
-            # represented, not only the latest checker stored on the Tasks row.
-            checker_repository = repo()
-            if hasattr(checker_repository, "get_all_task_checkers"):
-                all_checker_rows = checker_repository.get_all_task_checkers()
-            else:
-                # Backward-compatible fallback for a temporarily mismatched
-                # deployment. The bundled repository implements the efficient
-                # single-read method, so this branch should normally not run.
-                app.logger.warning(
-                    "Repository does not implement get_all_task_checkers(); "
-                    "using per-task checker-history fallback."
-                )
-                all_checker_rows = []
-                seen_checker_records: set[str] = set()
-                for dashboard_task in all_tasks:
-                    dashboard_task_id = str(
-                        dashboard_task.get("Task ID", "")
-                    ).strip()
-                    if not dashboard_task_id:
-                        continue
-                    for checker_row in checker_repository.get_task_checkers(
-                        dashboard_task_id
-                    ):
-                        record_id = str(
-                            checker_row.get("Checker Record ID", "")
-                        ).strip()
-                        dedupe_key = record_id or "|".join(
-                            [
-                                dashboard_task_id,
-                                str(checker_row.get("Stage", "")),
-                                str(checker_row.get("Attempt", "")),
-                                str(checker_row.get("Checker Email", "")),
-                                str(checker_row.get("Completed At", "")),
-                            ]
-                        )
-                        if dedupe_key in seen_checker_records:
-                            continue
-                        seen_checker_records.add(dedupe_key)
-                        all_checker_rows.append(checker_row)
+            # Keep the dashboard checking-completed count exactly aligned with
+            # the purple CHECKING COMPLETED entries on the Completed Tasks page.
+            # A task is counted when the main Tasks row represents a completed
+            # checking responsibility (Accepted or Changes Required) and its
+            # Checking Completed At date falls in the current month.
+            active_dashboard_users = active_users()
+            name_by_email = {
+                str(user.get("Email", "")).strip().lower():
+                str(user.get("Name", "")).strip()
+                for user in active_dashboard_users
+            }
 
-            completed_checking_rows = [
-                row
-                for row in all_checker_rows
-                if (
-                    str(row.get("Status", "")).strip().lower()
-                    in {"accepted", "changes required"}
+            completed_checking_entries: list[dict[str, str]] = []
+            for dashboard_task in all_tasks:
+                if not (
+                    is_completed_checking(dashboard_task)
                     and date_value_matches_month(
-                        row.get("Completed At", ""),
+                        dashboard_task.get("Checking Completed At", ""),
                         current_month,
                     )
+                ):
+                    continue
+
+                checker_email = str(
+                    dashboard_task.get("Checker Email", "")
+                ).strip().lower()
+                checker_name = str(
+                    dashboard_task.get("Checker Name", "")
+                ).strip()
+                if not checker_name:
+                    checker_name = (
+                        name_by_email.get(checker_email, "")
+                        or checker_email
+                        or "Unassigned"
+                    )
+
+                completed_checking_entries.append(
+                    {
+                        "Task ID": str(
+                            dashboard_task.get("Task ID", "")
+                        ).strip(),
+                        "Checker Email": checker_email,
+                        "Checker Name": checker_name,
+                        "Completed At": str(
+                            dashboard_task.get("Checking Completed At", "")
+                        ).strip(),
+                        "Status": str(
+                            dashboard_task.get("Checking Status", "")
+                        ).strip(),
+                    }
                 )
-            ]
-            checking_completed_month_count = len(completed_checking_rows)
+
+            checking_completed_month_count = len(completed_checking_entries)
 
             metrics = {
                 "ongoing": len(ongoing),
@@ -2075,23 +2072,21 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         associate_workload: list[dict[str, Any]] = []
         if editor_view:
             associate_summary: dict[str, Counter[str]] = defaultdict(Counter)
-            active_dashboard_users = active_users()
-            name_by_email = {
-                str(user.get("Email", "")).strip().lower():
-                str(user.get("Name", "")).strip()
-                for user in active_dashboard_users
-            }
+            # active_dashboard_users/name_by_email are prepared above while
+            # building the completed-checking register for the authorised view.
             for user in active_dashboard_users:
                 name = user.get("Name", "").strip()
                 if name:
                     associate_summary[name]
 
-            for checker_row in completed_checking_rows:
+            for checking_entry in completed_checking_entries:
+                # Use the same responsible-user name as the purple Completed
+                # Tasks entry so the dashboard count reconciles to that page.
                 checker_email = str(
-                    checker_row.get("Checker Email", "")
+                    checking_entry.get("Checker Email", "")
                 ).strip().lower()
                 checker_name = (
-                    str(checker_row.get("Checker Name", "")).strip()
+                    str(checking_entry.get("Checker Name", "")).strip()
                     or name_by_email.get(checker_email, "")
                     or checker_email
                     or "Unassigned"
