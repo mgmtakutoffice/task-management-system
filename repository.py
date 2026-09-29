@@ -121,6 +121,10 @@ class TaskRepository(ABC):
         """Return sequential checker records for one task."""
         raise NotImplementedError
 
+    def get_all_task_checkers(self) -> list[dict[str, str]]:
+        """Return all sequential checker records for dashboard/reporting use."""
+        raise NotImplementedError
+
     def add_task_checker(self, record: dict[str, str]) -> None:
         """Append one checker assignment/attempt."""
         raise NotImplementedError
@@ -322,6 +326,15 @@ class LocalJsonRepository(TaskRepository):
             {header: str(row.get(header, "")) for header in TASK_CHECKER_HEADERS}
             for row in rows
             if str(row.get("Task ID", "")).strip() == normalized
+        ]
+
+    def get_all_task_checkers(self) -> list[dict[str, str]]:
+        with self._lock:
+            rows = self._read_json(self.task_checkers_file, [])
+        return [
+            {header: str(row.get(header, "")) for header in TASK_CHECKER_HEADERS}
+            for row in rows
+            if isinstance(row, dict)
         ]
 
     def add_task_checker(self, record: dict[str, str]) -> None:
@@ -1114,6 +1127,29 @@ class GoogleSheetsRepository(TaskRepository):
             source = _row_to_dict(headers, row)
             if str(source.get("Task ID", "")).strip() != normalized:
                 continue
+            item = {
+                header: source.get(header, "")
+                for header in TASK_CHECKER_HEADERS
+            }
+            item["_sheet_row"] = str(sheet_row)
+            records.append(item)
+        return records
+
+    def get_all_task_checkers(self) -> list[dict[str, str]]:
+        end_column = self._column_letter(len(TASK_CHECKER_HEADERS))
+        values = self._get_values(
+            self.task_checkers_sheet_name,
+            f"A:{end_column}",
+        )
+        if not values:
+            return []
+
+        headers = values[0]
+        records: list[dict[str, str]] = []
+        for sheet_row, row in enumerate(values[1:], start=2):
+            if not any(str(value).strip() for value in row):
+                continue
+            source = _row_to_dict(headers, row)
             item = {
                 header: source.get(header, "")
                 for header in TASK_CHECKER_HEADERS
