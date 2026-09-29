@@ -1938,10 +1938,30 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                 )
                 for task in completed
             )
+
+            # Sequential checking can have multiple completed checker
+            # responsibilities for one task (Checker 1 -> Checker 2 -> Checker 3).
+            # Count from Task Checkers history so every completed checker stage is
+            # represented, not only the latest checker stored on the Tasks row.
+            completed_checking_rows = [
+                row
+                for row in repo().get_all_task_checkers()
+                if (
+                    str(row.get("Status", "")).strip().lower()
+                    in {"accepted", "changes required"}
+                    and date_value_matches_month(
+                        row.get("Completed At", ""),
+                        current_month,
+                    )
+                )
+            ]
+            checking_completed_month_count = len(completed_checking_rows)
+
             metrics = {
                 "ongoing": len(ongoing),
                 "pending_checking": pending_checking_count,
                 "completed_month": completed_month_count,
+                "checking_completed_month": checking_completed_month_count,
                 "pending_approvals": len(approvals),
             }
         else:
@@ -2016,14 +2036,33 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
         associate_workload: list[dict[str, Any]] = []
         if editor_view:
             associate_summary: dict[str, Counter[str]] = defaultdict(Counter)
-            for user in active_users():
+            active_dashboard_users = active_users()
+            name_by_email = {
+                str(user.get("Email", "")).strip().lower():
+                str(user.get("Name", "")).strip()
+                for user in active_dashboard_users
+            }
+            for user in active_dashboard_users:
                 name = user.get("Name", "").strip()
                 if name:
                     associate_summary[name]
 
+            for checker_row in completed_checking_rows:
+                checker_email = str(
+                    checker_row.get("Checker Email", "")
+                ).strip().lower()
+                checker_name = (
+                    str(checker_row.get("Checker Name", "")).strip()
+                    or name_by_email.get(checker_email, "")
+                    or checker_email
+                    or "Unassigned"
+                )
+                associate_summary[checker_name]["checking_completed_month"] += 1
+
             for task in all_tasks:
                 name = str(task.get("Assigned To", "")).strip() or "Unassigned"
                 if task["_is_completed"]:
+                    associate_summary[name]["total_completed"] += 1
                     if date_value_matches_month(
                         task.get("Completion Date", "")
                         or task.get("Completion Approved At", ""),
@@ -2068,7 +2107,9 @@ def create_app(config_override: dict[str, Any] | None = None) -> Flask:
                         "checking": counts["checking"],
                         "due_today": counts["due_today"],
                         "overdue": counts["overdue"],
+                        "total_completed": counts["total_completed"],
                         "completed_month": counts["completed_month"],
+                        "checking_completed_month": counts["checking_completed_month"],
                         "active_total": active_total,
                         "load_percent": (
                             round(active_total * 100 / maximum_active_workload)
